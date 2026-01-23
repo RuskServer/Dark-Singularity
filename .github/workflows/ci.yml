@@ -1,0 +1,38 @@
+name: Rust CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: libdark_singularity.so  # あなたのプロジェクトのバイナリ名に変更してください
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # Rustツールチェーンのセットアップ（キャッシュ機能付き）
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    # ビルド時間を短縮するためのキャッシュ設定
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v2
+
+    # Linux用バイナリのビルド (--release で最適化)
+    - name: Build release
+      run: cargo build --release --locked
+
+    # ビルドされたファイルを抽出し、成果物としてアップロード
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-binary
+        path: target/release/${{ env.BINARY_NAME }}
+        if-no-files-found: error
