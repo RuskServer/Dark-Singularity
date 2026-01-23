@@ -42,7 +42,7 @@
 ## 🚀 Installation
 
 1. `cargo build --release` を実行。
-2. 生成された `libdark_singularity.so` (または `.dll` / `.dylib`) を、プラグイン(https://github.com/RuskServer/Deepwither)のデータフォルダ (`plugins/deepwither/`) に配置。 
+2. 生成された `libdark_singularity.so` (または `.dll` / `.dylib`) を、プラグイン([https://github.com/RuskServer/Deepwither])のデータフォルダ (`plugins/deepwither/`) に配置。 
 3. `LiquidBrain.java` を通じてエンティティの意思決定を委譲。
 
 ---
