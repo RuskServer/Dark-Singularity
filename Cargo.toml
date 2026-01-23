@@ -1,0 +1,19 @@
+[package]
+name = "dark-singularity"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+# ここが重要！cdylib を指定することで、OS標準の動的ライブラリ形式で出力されます
+crate-type = ["cdylib"]
+
+[dependencies]
+# JNI連携用
+jni = "0.21"
+# 高速なシリアライズ（JSON等）
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# DSR（繋ぎ替え）に最適なデータ構造
+slotmap = "1.0"
+# 数値計算の並列化
+rayon = "1.8"
