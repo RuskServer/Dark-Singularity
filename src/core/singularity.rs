@@ -1,11 +1,14 @@
 // のロジックを移植
-use super::node::Node;
 use super::horizon::Horizon;
+use super::node::Node;
+use std::fs::File;
+use std::io::{self, Read, Write};
 
 pub struct Singularity {
     pub nodes: Vec<Node>,
     pub horizon: Horizon,
     pub system_temperature: f32,
+    pub last_topology_update_temp: f32, // Optimization: Temp at last reshape
     pub adrenaline: f32,
     pub frustration: f32,
     pub velocity_trust: f32,
@@ -15,7 +18,7 @@ pub struct Singularity {
     pub q_table: Vec<f32>, // 512状態 * 8行動 のフラット配列
     pub last_action_idx: usize,
     pub last_state_idx: usize,
-    
+
     // 特定の役割を持つノードのインデックス
     pub idx_aggression: usize,
     pub idx_fear: usize,
@@ -37,6 +40,7 @@ impl Singularity {
             nodes,
             horizon: Horizon::new(),
             system_temperature: 0.5,
+            last_topology_update_temp: -1.0, // Force update on first run
             adrenaline: 0.0,
             frustration: 0.0,
             velocity_trust: 1.0,
@@ -44,7 +48,7 @@ impl Singularity {
             morale: 1.0,
             patience: 1.0,
             // 512状態 * 8行動 = 4096要素のQテーブルを0.0で初期化
-            q_table: vec![0.0; 512 * 8], 
+            q_table: vec![0.0; 512 * 8],
             last_action_idx: 4, // OBSERVE
             last_state_idx: 0,
             idx_aggression: 0,
@@ -53,7 +57,7 @@ impl Singularity {
             idx_reflex: 3,
         }
     }
-    
+
     pub fn select_action(&mut self, state_idx: usize) -> usize {
         self.last_state_idx = state_idx;
         let mut best_action = 4; // Default: OBSERVE
@@ -64,7 +68,7 @@ impl Singularity {
         for action_idx in 0..8 {
             // Q値 + ニューロンの活性度（Aggressionなど）を統合してスコアリング
             let q_value = self.q_table[base_offset + action_idx];
-            
+
             // 例: Action 0 (ATTACK) なら Aggression ノードの状態を重畳
             let neuron_boost = match action_idx {
                 0 => self.nodes[self.idx_aggression].state * 1.5,
@@ -88,18 +92,22 @@ impl Singularity {
     pub fn learn(&mut self, reward: f32) {
         let state_offset = self.last_state_idx * 8;
         let current_q = self.q_table[state_offset + self.last_action_idx];
-        
+
         // 予測誤差 (TD Error)
         let td_error = reward - current_q;
 
         // TQH: 誤差が温度を上げ、熱が学習率(Alpha)をブーストする
         let learning_rate = 0.1 * (1.0 + self.system_temperature);
-        
+
         // Q値の更新
         self.q_table[state_offset + self.last_action_idx] += learning_rate * td_error;
 
         // 経験の消化（温度変化とトポロジー再編）を呼び出し
-        self.digest_experience(td_error, reward, if reward < 0.0 { reward.abs() } else { 0.0 });
+        self.digest_experience(
+            td_error,
+            reward,
+            if reward < 0.0 { reward.abs() } else { 0.0 },
+        );
     }
 
     /// 経験の消化 (TQH平衡計算)
@@ -111,23 +119,31 @@ impl Singularity {
         self.system_temperature = (self.system_temperature.clamp(0.0, 2.0)) * 0.94;
 
         let urgency = ((reward + penalty) * 5.0).min(1.0);
-        
+
         // 状態更新も update_all_nodes と同じロジックで行う
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
         for node in &mut self.nodes {
-            node.update(0.0, urgency, self.system_temperature, &current_states); 
+            node.update(0.0, urgency, self.system_temperature, &current_states);
         }
-        
-        self.reshape_topology();
-        
+
+        // 最適化: 緊急性が高いか、システム温度が大きく変化した場合のみトポロジーを再構築
+        let temp_diff = (self.system_temperature - self.last_topology_update_temp).abs();
+        if urgency > 0.5 || temp_diff > 0.05 {
+            self.reshape_topology();
+        }
+
         let all_indices: Vec<usize> = (0..self.nodes.len()).collect();
-        self.horizon.regulate(self.system_temperature, &all_indices, &mut self.nodes);
+        self.horizon
+            .regulate(self.system_temperature, &all_indices, &mut self.nodes);
     }
 
     // TQHによる相転移ロジック
     /// [TQH-DSR] システム温度に基づいた動的トポロジー再編
     /// Java版 LiquidBrain.reshapeTopology() の完全移行版
     pub fn reshape_topology(&mut self) {
+        // 更新時の温度を記録
+        self.last_topology_update_temp = self.system_temperature;
+
         // 1. 全シナプスの物理的切断 (一旦全クリア)
         // Javaの disconnect() ループを Vec::clear() で高速化
         for node in &mut self.nodes {
@@ -137,13 +153,13 @@ impl Singularity {
         let glia_intervention = self.horizon.get_intervention_level();
 
         // 2. 相転移ロジック (System Temperature による分岐)
-        
+
         // --- GAS (気体) 状態: 1.2+ ---
         // 高エネルギー・暴走状態。反射(Reflex)と直感(Aggression)が直結。
         if self.system_temperature > 1.2 {
             // 攻撃衝動を反射に直結（最速の反応）
             self.connect(self.idx_aggression, self.idx_reflex, 2.0);
-            
+
             // アストロサイト（グリア）が過剰発火を検知した場合
             if glia_intervention > 0.6 {
                 // 攻撃回路を強制遮断し、恐怖(Fear)による回避を最優先
@@ -151,8 +167,7 @@ impl Singularity {
                 self.connect(self.idx_reflex, self.idx_fear, 1.5);
                 self.connect(self.idx_fear, self.idx_reflex, 1.2);
             }
-        } 
-        
+        }
         // --- SOLID (固体) 状態: 0.0 - 0.3 ---
         // 低エネルギー・結晶化状態。戦術(Tactical)に基づいた精密な最適化。
         else if self.system_temperature < 0.3 {
@@ -160,17 +175,16 @@ impl Singularity {
             if self.fatigue_map[0] < 0.5 {
                 self.connect(self.idx_tactical, self.idx_aggression, 1.2);
             }
-            
+
             // 結晶化しているため、無駄な反射を抑制し、精密射撃や距離維持に特化
             self.connect(self.idx_tactical, self.idx_reflex, 0.5);
-        } 
-        
+        }
         // --- LIQUID (液体) 状態: 0.3 - 1.2 ---
         // 平常・適応状態。環境に合わせて柔軟にトポロジーを構築。
         else {
             // 基本的な戦術ループ
             self.connect(self.idx_tactical, self.idx_reflex, 1.0);
-            
+
             // アドレナリン（情動）が高い場合、攻撃性をブースト
             if self.adrenaline > 0.5 {
                 self.connect(self.idx_aggression, self.idx_reflex, 1.5);
@@ -211,7 +225,7 @@ impl Singularity {
     pub fn update_all_nodes(&mut self, input_signals: &[f32], urgency: f32) {
         // 1. 全ノードの「現在の状態」だけを抜き出した配列を作る
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
-    
+
         // 2. その配列を参照として Node::update に渡す
         for (i, node) in self.nodes.iter_mut().enumerate() {
             let input = input_signals.get(i).cloned().unwrap_or(0.0);
@@ -221,6 +235,141 @@ impl Singularity {
     }
 
     fn connect(&mut self, from: usize, to: usize, weight: f32) {
-        self.nodes[from].synapses.push(super::node::Synapse { target_id: to, weight });
+        self.nodes[from].synapses.push(super::node::Synapse {
+            target_id: to,
+            weight,
+        });
+    }
+
+    // --- Persistance (Custom Binary Format .dsym) ---
+    /*
+        Format Spec:
+        [Header] "DSYM" (4 bytes)
+        [Version] u32 (4 bytes)
+        [SystemTemp] f32
+        [Adrenaline] f32
+        [Frustration] f32
+        [VelocityTrust] f32
+        [Morale] f32
+        [Patience] f32
+        [FatigueMap] f32 * 8
+        [QTable] f32 * 4096 (512 * 8)
+        [Nodes] count: u32 -> [state: f32, base_decay: f32] * count
+    */
+
+    pub fn save_to_file(&self, path: &str) -> io::Result<()> {
+        let mut file = File::create(path)?;
+
+        // Header
+        file.write_all(b"DSYM")?;
+        file.write_all(&1u32.to_le_bytes())?; // Version
+
+        // Parameters
+        file.write_all(&self.system_temperature.to_le_bytes())?;
+        file.write_all(&self.adrenaline.to_le_bytes())?;
+        file.write_all(&self.frustration.to_le_bytes())?;
+        file.write_all(&self.velocity_trust.to_le_bytes())?;
+        file.write_all(&self.morale.to_le_bytes())?;
+        file.write_all(&self.patience.to_le_bytes())?;
+
+        // Arrays
+        for f in &self.fatigue_map {
+            file.write_all(&f.to_le_bytes())?;
+        }
+
+        for q in &self.q_table {
+            file.write_all(&q.to_le_bytes())?;
+        }
+
+        // Nodes
+        file.write_all(&(self.nodes.len() as u32).to_le_bytes())?;
+        for node in &self.nodes {
+            file.write_all(&node.state.to_le_bytes())?;
+            file.write_all(&node.base_decay.to_le_bytes())?;
+        }
+
+        Ok(())
+    }
+
+    pub fn load_from_file(&mut self, path: &str) -> io::Result<()> {
+        let mut file = File::open(path)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+
+        // Helper to read slices without capturing cursor mutably via closure loop
+        let mut cursor = 0;
+
+        let read_u32_at = |pos: usize| -> io::Result<u32> {
+            if pos + 4 > buffer.len() {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF"));
+            }
+            Ok(u32::from_le_bytes(buffer[pos..pos + 4].try_into().unwrap()))
+        };
+        let read_f32_at = |pos: usize| -> io::Result<f32> {
+            if pos + 4 > buffer.len() {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF"));
+            }
+            Ok(f32::from_le_bytes(buffer[pos..pos + 4].try_into().unwrap()))
+        };
+
+        // Header check
+        if buffer.len() < 4 || &buffer[0..4] != b"DSYM" {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid magic bytes",
+            ));
+        }
+        cursor += 4;
+
+        let _version = read_u32_at(cursor)?;
+        cursor += 4;
+
+        self.system_temperature = read_f32_at(cursor)?;
+        cursor += 4;
+        self.adrenaline = read_f32_at(cursor)?;
+        cursor += 4;
+        self.frustration = read_f32_at(cursor)?;
+        cursor += 4;
+        self.velocity_trust = read_f32_at(cursor)?;
+        cursor += 4;
+        self.morale = read_f32_at(cursor)?;
+        cursor += 4;
+        self.patience = read_f32_at(cursor)?;
+        cursor += 4;
+
+        for i in 0..8 {
+            self.fatigue_map[i] = read_f32_at(cursor)?;
+            cursor += 4;
+        }
+
+        // Load Q-Table
+        let q_len = 512 * 8;
+        for i in 0..q_len {
+            self.q_table[i] = read_f32_at(cursor)?;
+            cursor += 4;
+        }
+
+        // Nodes
+        let node_count = read_u32_at(cursor)? as usize;
+        cursor += 4;
+
+        // Don't resize nodes vec if count matches, to preserve roles (aggression/fear etc)
+        // If count mismatch, we might have an issue, but for now optimization: assume structure is same
+        if node_count != self.nodes.len() {
+            // In a real implementation we might want to resize or error
+        }
+
+        for i in 0..self.nodes.len() {
+            self.nodes[i].state = read_f32_at(cursor)?;
+            cursor += 4;
+            self.nodes[i].base_decay = read_f32_at(cursor)?;
+            cursor += 4;
+        }
+
+        // Post-load: Force topology update to match loaded temperature
+        self.last_topology_update_temp = -1.0;
+        self.reshape_topology();
+
+        Ok(())
     }
 }

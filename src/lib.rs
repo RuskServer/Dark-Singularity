@@ -1,8 +1,8 @@
 // src/lib.rs
-use jni::JNIEnv;
-use jni::objects::{JClass, JFloatArray};
-use jni::sys::{jlong, jfloat, jint, jfloatArray, jsize};
 use crate::core::singularity::Singularity;
+use jni::JNIEnv;
+use jni::objects::{JClass, JFloatArray, JString};
+use jni::sys::{jfloat, jfloatArray, jint, jlong, jsize};
 
 pub mod core;
 
@@ -21,20 +21,21 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_i
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_selectActionNative(
-    mut env: JNIEnv, 
+    env: JNIEnv,
     _class: JClass,
     handle: jlong,
     inputs: JFloatArray,
 ) -> jint {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
-    
+
     // --- 修正箇所：JNI配列からRustのVecへ ---
     // 1. 安全にJNI配列の要素を取得
-    let input_vec: Vec<f32> = unsafe {
+    let input_vec: Vec<f32> = {
         // 配列を読み取ってコピーする（要素数を取得して変換）
         let len = env.get_array_length(&inputs).unwrap_or(0) as usize;
         let mut buf = vec![0.0f32; len];
-        env.get_float_array_region(&inputs, 0, &mut buf).unwrap_or(());
+        env.get_float_array_region(&inputs, 0, &mut buf)
+            .unwrap_or(());
         buf
     };
     // ------------------------------------
@@ -42,8 +43,12 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_s
     // input_vec を使って状態インデックスを計算するロジック（Java版のロジックに合わせて）
     // 一旦、Javaから渡される情報の先頭を state_idx と仮定するか、
     // あるいは Java 側で計算済みの idx を引数に追加するのもアリです。
-    let state_idx = if !input_vec.is_empty() { input_vec[0] as usize } else { 0 };
-    
+    let state_idx = if !input_vec.is_empty() {
+        input_vec[0] as usize
+    } else {
+        0
+    };
+
     singularity.select_action(state_idx) as jint
 }
 
@@ -106,11 +111,11 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
     action_idx: jint,
 ) -> jfloat {
     let singularity = unsafe { &*(handle as *const Singularity) };
-    
+
     // 現在の最新状態(last_state_idx)における、指定アクションのQ値を取得
     let state_offset = singularity.last_state_idx * 8;
     let idx = state_offset + (action_idx as usize);
-    
+
     if idx < singularity.q_table.len() {
         // 疲労度(fatigue_map)による減衰も考慮した「生のスコア」を返す
         let q_value = singularity.q_table[idx];
@@ -143,19 +148,69 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getNeuronStates(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     handle: jlong,
 ) -> jfloatArray {
     let singularity = unsafe { &*(handle as *const Singularity) };
     let states: Vec<f32> = singularity.nodes.iter().map(|n| n.state).collect();
-    
+
     // 1. ラッパーオブジェクト(JFloatArray)を作成
     let output = env.new_float_array(states.len() as jsize).unwrap();
-    
+
     // 2. 値をセット
     env.set_float_array_region(&output, 0, &states).unwrap();
-    
+
     // 3. 重要：.into_raw() を呼び出して jfloatArray (ポインタ) に変換して返す
     output.into_raw()
+}
+
+// --- New Features: Save/Load ---
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_saveNativeModel(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    path: JString,
+) -> jint {
+    let singularity = unsafe { &*(handle as *const Singularity) };
+
+    // Java String -> Rust String
+    let path_str: String = match env.get_string(&path) {
+        Ok(s) => s.into(),
+        Err(_) => return -1, // Error
+    };
+
+    match singularity.save_to_file(&path_str) {
+        Ok(_) => 0, // Success
+        Err(e) => {
+            println!("Error saving model: {}", e);
+            -2 // Save Error
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_loadNativeModel(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    path: JString,
+) -> jint {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+
+    // Java String -> Rust String
+    let path_str: String = match env.get_string(&path) {
+        Ok(s) => s.into(),
+        Err(_) => return -1, // Error
+    };
+
+    match singularity.load_from_file(&path_str) {
+        Ok(_) => 0, // Success
+        Err(e) => {
+            println!("Error loading model: {}", e);
+            -2 // Load Error
+        }
+    }
 }

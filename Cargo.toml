@@ -5,7 +5,7 @@ edition = "2024"
 
 [lib]
 # ここが重要！cdylib を指定することで、OS標準の動的ライブラリ形式で出力されます
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # JNI連携用
