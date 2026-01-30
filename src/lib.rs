@@ -8,11 +8,11 @@ pub mod core;
 
 // インスタンスを生成して Java にポインタ(jlong)として返す
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_initNativeSingularity(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_initNativeSingularity(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
-    let singularity = Box::new(Singularity::new(8, 512)); // アクション数8、状態数64で初期化
+    let singularity = Box::new(Singularity::new(512, 8)); // アクション数8、状態数512で初期化
     Box::into_raw(singularity) as jlong
 }
 
@@ -20,7 +20,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_i
 // src/lib.rs の selectActionNative 部分
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_selectActionNative(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_selectActionNative(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -54,7 +54,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_s
 
 // 学習（経験の消化）を Rust 側で実行
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_learnNative(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_learnNative(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -67,7 +67,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_l
 // src/lib.rs
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_destroyNativeSingularity(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_destroyNativeSingularity(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -83,7 +83,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_d
 
 // 他のパラメータをJava側に返す（Snapshot用）ゲッターも必要であればここに追加
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getSystemTemperature(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getSystemTemperature(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -93,7 +93,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getGliaActivityNative(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getGliaActivityNative(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -104,7 +104,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getActionScoreNative(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getActionScoreNative(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -127,7 +127,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getFrustration(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getFrustration(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -137,7 +137,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getAdrenaline(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getAdrenaline(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -147,7 +147,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getNeuronStates(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getNeuronStates(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -168,7 +168,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_g
 // --- New Features: Save/Load ---
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_saveNativeModel(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_saveNativeModel(
     mut env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -192,7 +192,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_s
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_loadNativeModel(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_loadNativeModel(
     mut env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -216,7 +216,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_l
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_selectActionsNative(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_selectActionsNative(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -240,7 +240,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_s
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_learnMultiNative(
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_learnMultiNative(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,

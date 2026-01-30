@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.lunar_prototype</groupId>
+    <artifactId>dark_singularity_api</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- For tests -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <profile>
+            <id>macos</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                </os>
+            </activation>
+            <properties>
+                <native.lib.name>libdark_singularity.dylib</native.lib.name>
+                <native.os>macos</native.os>
+            </properties>
+        </profile>
+        <profile>
+            <id>linux</id>
+            <activation>
+                <os>
+                    <family>unix</family>
+                    <name>Linux</name>
+                </os>
+            </activation>
+            <properties>
+                <native.lib.name>libdark_singularity.so</native.lib.name>
+                <native.os>linux</native.os>
+            </properties>
+        </profile>
+        <profile>
+            <id>windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <native.lib.name>dark_singularity.dll</native.lib.name>
+                <native.os>windows</native.os>
+            </properties>
+        </profile>
+    </profiles>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>cargo-build</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>cargo</executable>
+                            <workingDirectory>..</workingDirectory>
+                            <arguments>
+                                <argument>build</argument>
+                                <argument>--release</argument>
+                            </arguments>
+                            <skip>${skip.native.build}</skip>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-native-lib</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>sh</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>
+                                    # アーキテクチャ判定
+                                    ARCH=$(uname -m | sed 's/x86_64/x86_64/' | sed 's/arm64/aarch64/' | sed 's/aarch64/aarch64/')
+                                    DEST="target/classes/native/${native.os}/$ARCH"
+                                    mkdir -p "$DEST"
+                                    cp ../target/release/${native.lib.name} "$DEST/"
+                                </argument>
+                            </arguments>
+                            <skip>${skip.native.build}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <argLine>-Djava.library.path=${project.build.directory}/classes</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
