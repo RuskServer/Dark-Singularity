@@ -25,7 +25,43 @@
 本プロジェクトは現在、他の Java プロジェクト（Minecraft プラグイン等）から直接利用可能なライブラリとして提供されています。
 
 ### 1. 導入
-[GitHub Releases](https://github.com/RuskServer/Dark-Singularity/releases) から最新の `dark_singularity_api-*.jar` をダウンロードし、プロジェクトの依存関係に追加してください。この JAR にはすべてのプラットフォーム用のネイティブライブラリが同梱されています。
+Maven または Gradle を使用してプロジェクトに追加できます。
+
+#### Maven
+`pom.xml` に以下のリポジトリと依存関係を追加してください。
+
+```xml
+<repositories>
+    <repository>
+        <id>ruskserver-releases</id>
+        <url>https://repo.ruskserver.com/repository/maven-releases/</url>
+    </repository>
+</repositories>
+
+<dependencies>
+    <dependency>
+        <groupId>com.lunar_prototype</groupId>
+        <artifactId>dark_singularity_api</artifactId>
+        <version>1.0.0</version> <!-- 適宜最新バージョンに変更してください -->
+    </dependency>
+</dependencies>
+```
+
+#### Gradle (Kotlin DSL)
+`build.gradle.kts` に以下を追加してください。
+
+```kotlin
+repositories {
+    maven("https://repo.ruskserver.com/repository/maven-releases/")
+}
+
+dependencies {
+    implementation("com.lunar_prototype:dark_singularity_api:1.0.0")
+}
+```
+
+> [!TIP]
+> 直接 JAR を入手したい場合は、[GitHub Releases](https://github.com/RuskServer/Dark-Singularity/releases) からもダウンロード可能です。この JAR にはすべてのプラットフォーム用のネイティブライブラリが同梱されています。
 
 ### 2. 基本的な実装
 `Singularity` クラスは `AutoCloseable` を実装しているため、`try-with-resources` での使用を推奨します。
