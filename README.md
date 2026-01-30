@@ -2,7 +2,8 @@
 
 > **Thermodynamic Q-Homeostasis (TQH) AI Engine for Minecraft Entities**
 
-`DarkSingularity` は、Minecraft のエンティティに高度な戦術的知能を与えるために設計された、Rust 製のハイブリッド型ニューラルネットワーク・エンジンです。Java 側の低速な演算を排し、物理シミュレーションに基づいた熱力学的な意思決定プロセスを提供します。
+`DarkSingularity` は、Minecraft のエンティティに高度な戦術的知能を与えるために設計された、Rust 製のハイブリッド型ニューラルネットワーク・エンジンです。
+物理シミュレーションに基づいた熱力学的な意思決定プロセスを JNI 経由で Java 側へ提供します。
 
 ---
 
@@ -11,18 +12,70 @@
 本エンジンは、生物の神経系が持つ「興奮」と「冷却」のプロセスを数学的に模倣した **TQH (Thermodynamic Q-Homeostasis)** 理論に基づいています。
 
 - **Thermal Liquidity (熱流動性)**
-  TD誤差を「熱」として扱い、未知の状況下で脳構造を相転移させます。
+  TD誤差を「熱」として扱い、未知の状況下で脳構造を動的に相転移させます。
 - **Elastic Action Selection**
-  疲労（Fatigue Map）と不満（Frustration）による動的な行動選択。
-- **JNI-Bridge Optimization**
-  Java と Rust 間のメモリ共有を最適化し、ティック毎のオーバーヘッドを極限まで削減。
+  疲労（Fatigue Map）と不満（Frustration）をパラメータに含めた、揺らぎのある行動選択。
+- **Cross-Platform Integration**
+  Windows, macOS, Linux の各プラットフォームに対応し、単一の JAR ファイルでシームレスに動作します。
 
 ---
 
-## 🛠 Project Structure
+## 🚀 Getting Started (Java API)
 
-- `src/core/`: Rust 側の知能中枢 (`Singularity`, `Node`, `Horizon`)
-- `src/lib.rs`: JNI ブリッジインターフェース
+本プロジェクトは現在、他の Java プロジェクト（Minecraft プラグイン等）から直接利用可能なライブラリとして提供されています。
+
+### 1. 導入
+[GitHub Releases](https://github.com/RuskServer/Dark-Singularity/releases) から最新の `dark_singularity_api-*.jar` をダウンロードし、プロジェクトの依存関係に追加してください。この JAR にはすべてのプラットフォーム用のネイティブライブラリが同梱されています。
+
+### 2. 基本的な実装
+`Singularity` クラスは `AutoCloseable` を実装しているため、`try-with-resources` での使用を推奨します。
+
+```java
+import com.lunar_prototype.dark_singularity_api.Singularity;
+
+public class MyEntityAI {
+    public void tick() {
+        try (Singularity ai = new Singularity()) {
+            // 1. 状態の入力とアクション選択 (0-7)
+            float[] state = getEnvironmentalState();
+            int action = ai.selectAction(state);
+            
+            // 2. 実行結果の学習
+            float reward = performAction(action);
+            ai.learn(reward);
+            
+            // 3. 状態の保存
+            ai.saveModel("data/brain.dsym");
+        }
+    }
+}
+```
+
+---
+
+## 📊 Phase Analysis
+
+`Singularity` は、システム温度（System Temperature）によって脳の結合構造を変化させます。
+
+| Phase | Characteristics | Characteristics (JP) |
+| :--- | :--- | :--- |
+| 🟦 **Solid** | Precision & Optimization | 冷徹な最適化。予測精度が高い安定状態。 |
+| 🟩 **Liquid** | Flexibility & Learning | 標準的な適応状態。環境に合わせて柔軟に変化。 |
+| 🟥 **Gas** | Chaos & Exploration | 相転移・混沌状態。新たな戦術を模索する暴走状態。 |
+
+---
+
+## 🛠 For Developers
+
+### プロジェクト構造
+- `src/core/`: Rust 製 AI エンジンのコアロジック
+- `src/lib.rs`: JNI ブリッジ (Rust 側)
+- `dark_singularity_api/`: Java 向けラッパーライブラリ
+
+### ビルド
+本プロジェクトは GitHub Actions による完全自動ビルドに対応しています。
+- **Local**: `dark_singularity_api` ディレクトリで `mvn package` を実行すると、Rust のコンパイルから JAR の生成まで自動で行われます。
+- **Release**: `v*` タグをプッシュすることで、全プラットフォーム対応の統合 JAR が自動生成され、GitHub Release にアップロードされます。
 
 ---
 
@@ -30,32 +83,9 @@
 
 **本プロジェクトは RuskLabo (Lunar_prototype) の専属的な研究成果です。**
 
-- **Latest Only**
-  我々は常に「最新こそが最強」であると信じています。そのため、**過去バージョンのメンテナンス、バグ修正、および下位互換性の維持は一切行いません。**
-- **No Support**
-  過去のアーティファクトに関する問い合わせには応答しません。常に最新のブランチを使用してください。
-- **Destructive Updates**
-  予告なしに JNI シグネチャやデータ構造が変更される場合があります。
-
----
-
-## 🚀 Installation
-
-1. `cargo build --release` を実行。
-2. 生成された `libdark_singularity.so` (または `.dll` / `.dylib`) を、プラグイン([プラグインのリポジトリ](https://github.com/RuskServer/Deepwither))のデータフォルダ (`plugins/deepwither/`) に配置。 
-3. `LiquidBrain.java` を通じてエンティティの意思決定を委譲。
-
----
-
-## 📊 Analytics & Visualisation
-
-`LiquidBrain` は、戦闘中の脳状態を Snapshot として記録可能です。
-
-| Phase | State | Characteristics |
-| :--- | :--- | :--- |
-| 🟦 **Solid** | Blue | 冷徹な最適化状態。予測精度が高い。 |
-| 🟩 **Liquid** | Green | 標準的な学習状態。 |
-| 🟥 **Gas** | Red | 相転移・混沌状態。予測が外れ、新たな戦術を模索中。 |
+- **Latest Only**: 常に最新のブランチ・バージョンのみをサポート対象とします。下位互換性の維持や過去バージョンの修正は行いません。
+- **No Support**: 過去のアーティファクトに関する問い合わせには応答しません。
+- **Destructive Updates**: 予告なしに内部構造や JNI シグネチャが変更される場合があります。
 
 ---
 
