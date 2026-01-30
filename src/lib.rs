@@ -1,8 +1,8 @@
 // src/lib.rs
 use crate::core::singularity::Singularity;
 use jni::JNIEnv;
-use jni::objects::{JClass, JFloatArray, JString};
-use jni::sys::{jfloat, jfloatArray, jint, jlong, jsize};
+use jni::objects::{JClass, JFloatArray, JIntArray, JString};
+use jni::sys::{jfloat, jfloatArray, jint, jlong, jsize,jintArray};
 
 pub mod core;
 
@@ -12,7 +12,7 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_i
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
-    let singularity = Box::new(Singularity::new());
+    let singularity = Box::new(Singularity::new(8, 512)); // アクション数8、状態数64で初期化
     Box::into_raw(singularity) as jlong
 }
 
@@ -213,4 +213,49 @@ pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_l
             -2 // Load Error
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_selectActionsNative(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    inputs: JFloatArray,
+) -> jintArray {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    
+    // 入力取得（既存ロジック）
+    let len = env.get_array_length(&inputs).unwrap_or(0) as usize;
+    let mut buf = vec![0.0f32; len];
+    env.get_float_array_region(&inputs, 0, &mut buf).unwrap_or(());
+    let state_idx = if !buf.is_empty() { buf[0] as usize } else { 0 };
+
+    // マルチアクション選択
+    let actions = singularity.select_multitask_actions(state_idx);
+
+    // jintArrayとしてJavaに返す
+    let output = env.new_int_array(actions.len() as jsize).unwrap();
+    env.set_int_array_region(&output, 0, &actions).unwrap();
+    output.into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_learnMultiNative(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    applied_actions: JIntArray, // Java側で実行したアクションの配列 [0, 5] など
+    reward: jfloat,
+) {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    
+    // JNIのint配列をRustのVecに変換
+    let len = env.get_array_length(&applied_actions).unwrap_or(0) as usize;
+    let mut actions = vec![0i32; len];
+    env.get_int_array_region(&applied_actions, 0, &mut actions).unwrap_or(());
+
+    let actions_usize: Vec<usize> = actions.into_iter().map(|a| a as usize).collect();
+
+    // 拡張した学習メソッドを呼び出し
+    singularity.learn_multi(&actions_usize, reward as f32);
 }

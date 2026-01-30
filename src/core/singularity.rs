@@ -8,18 +8,19 @@ pub struct Singularity {
     pub nodes: Vec<Node>,
     pub horizon: Horizon,
     pub system_temperature: f32,
-    pub last_topology_update_temp: f32, // Optimization: Temp at last reshape
+    pub last_topology_update_temp: f32,
     pub adrenaline: f32,
     pub frustration: f32,
     pub velocity_trust: f32,
-    pub fatigue_map: [f32; 8],
+    pub fatigue_map: Vec<f32>, // 可変長へ: [f32; 8] -> Vec<f32>
     pub morale: f32,
     pub patience: f32,
-    pub q_table: Vec<f32>, // 512状態 * 8行動 のフラット配列
+    pub q_table: Vec<f32>,     // 状態数 * アクション数
+    pub action_size: usize,    // 追加: アクション数を保持
+    pub state_size: usize,     // 追加: 状態数を保持 (デフォルト512)
     pub last_action_idx: usize,
     pub last_state_idx: usize,
 
-    // 特定の役割を持つノードのインデックス
     pub idx_aggression: usize,
     pub idx_fear: usize,
     pub idx_tactical: usize,
@@ -27,29 +28,29 @@ pub struct Singularity {
 }
 
 impl Singularity {
-    pub fn new() -> Self {
-        // 主要な4つのニューロンを初期化
+    pub fn new(state_size: usize, action_size: usize) -> Self {
         let nodes = vec![
-            Node::new(0.5), // 0: Aggression (攻撃)
-            Node::new(0.4), // 1: Fear (恐怖)
-            Node::new(0.3), // 2: Tactical (戦術)
-            Node::new(0.3), // 3: Reflex (反射)
+            Node::new(0.5), // Aggression
+            Node::new(0.4), // Fear
+            Node::new(0.3), // Tactical
+            Node::new(0.3), // Reflex
         ];
 
         Self {
             nodes,
             horizon: Horizon::new(),
             system_temperature: 0.5,
-            last_topology_update_temp: -1.0, // Force update on first run
+            last_topology_update_temp: -1.0,
             adrenaline: 0.0,
             frustration: 0.0,
             velocity_trust: 1.0,
-            fatigue_map: [0.0; 8],
+            fatigue_map: vec![0.0; action_size],
             morale: 1.0,
             patience: 1.0,
-            // 512状態 * 8行動 = 4096要素のQテーブルを0.0で初期化
-            q_table: vec![0.0; 512 * 8],
-            last_action_idx: 4, // OBSERVE
+            q_table: vec![0.0; state_size * action_size],
+            action_size,
+            state_size,
+            last_action_idx: 0,
             last_state_idx: 0,
             idx_aggression: 0,
             idx_fear: 1,
@@ -222,6 +223,44 @@ impl Singularity {
         }
     }
 
+    // 例: カテゴリー分け
+    // 0-3: 移動系 (静止, 前進, 後退, 回避)
+    // 4-7: 行動系 (待機, 攻撃, スキル, 防御)
+
+    pub fn select_multitask_actions(&mut self, state_idx: usize) -> Vec<i32> {
+        self.last_state_idx = state_idx;
+        let base_offset = state_idx * self.action_size;
+
+        // カテゴリーごとに最高スコアを探す
+        let movement_action = self.get_best_in_range(base_offset, 0..4);
+        let combat_action = self.get_best_in_range(base_offset, 4..8);
+
+        self.last_action_idx = movement_action; // 簡略化のため一つを記録（本来は履歴もマルチ化すべき）
+        vec![movement_action as i32, combat_action as i32]
+    }
+
+    fn get_best_in_range(&self, base_offset: usize, range: std::ops::Range<usize>) -> usize {
+        let mut best = range.start;
+        let mut max_score = -f32::INFINITY;
+
+        for action_idx in range {
+            let q_value = self.q_table[base_offset + action_idx];
+            // ニューロンによる補正（既存ロジックを流用）
+            let neuron_boost = match action_idx {
+                0 => self.nodes[self.idx_aggression].state * 1.5, // 攻撃
+                1 => self.nodes[self.idx_fear].state * 1.2,       // 回避
+                _ => 0.0,
+            };
+            let score = q_value + neuron_boost;
+
+            if score > max_score {
+                max_score = score;
+                best = action_idx;
+            }
+        }
+        best
+    }
+
     pub fn update_all_nodes(&mut self, input_signals: &[f32], urgency: f32) {
         // 1. 全ノードの「現在の状態」だけを抜き出した配列を作る
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
@@ -371,5 +410,32 @@ impl Singularity {
         self.reshape_topology();
 
         Ok(())
+    }
+
+    // --- 既存の learn をマルチアクション対応にオーバーロード/拡張 ---
+    pub fn learn_multi(&mut self, actions: &[usize], reward: f32) {
+        // 各アクションに対して個別に学習を実行
+        for &action_idx in actions {
+            let state_offset = self.last_state_idx * self.action_size;
+            let current_q = self.q_table[state_offset + action_idx];
+
+            // 予測誤差 (TD Error)
+            let td_error = reward - current_q;
+
+            // TQHブースト
+            let learning_rate = 0.1 * (1.0 + self.system_temperature);
+
+            // Q値の更新
+            self.q_table[state_offset + action_idx] += learning_rate * td_error;
+        }
+
+        // 経験の消化（温度変化）は、TD誤差の平均値や最大値で行う
+        // ここでは最も「意外性の高かった（誤差が大きかった）結果」を温度に反映
+        let max_td_error = reward; // 簡易的な実装
+        self.digest_experience(
+            max_td_error,
+            reward,
+            if reward < 0.0 { reward.abs() } else { 0.0 },
+        );
     }
 }
