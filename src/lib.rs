@@ -8,7 +8,7 @@ pub mod core;
 
 // インスタンスを生成して Java にポインタ(jlong)として返す
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_initNativeSingularity(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_initNativeSingularity(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
@@ -20,7 +20,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_in
 // src/lib.rs の selectActionNative 部分
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_selectActionNative(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_selectActionNative(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -54,7 +54,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_se
 
 // 学習（経験の消化）を Rust 側で実行
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_learnNative(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_learnNative(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -67,7 +67,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_le
 // src/lib.rs
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_destroyNativeSingularity(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_destroyNativeSingularity(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -83,7 +83,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_de
 
 // 他のパラメータをJava側に返す（Snapshot用）ゲッターも必要であればここに追加
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_getSystemTemperature(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getSystemTemperature(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -93,7 +93,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_ge
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_getGliaActivityNative(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getGliaActivityNative(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -104,7 +104,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_ge
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_getActionScoreNative(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getActionScoreNative(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -127,7 +127,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_ge
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_getFrustration(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getFrustration(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -137,7 +137,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_ge
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_getAdrenaline(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getAdrenaline(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -147,7 +147,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_ge
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_getNeuronStates(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_getNeuronStates(
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -168,7 +168,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_ge
 // --- New Features: Save/Load ---
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_saveNativeModel(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_saveNativeModel(
     mut env: JNIEnv,
     _class: JClass,
     handle: jlong,
@@ -192,7 +192,7 @@ pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_sa
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_prototype_deepwither_seeker_LiquidBrain_loadNativeModel(
+pub extern "system" fn Java_com_lunar_1prototype_deepwither_seeker_LiquidBrain_loadNativeModel(
     mut env: JNIEnv,
     _class: JClass,
     handle: jlong,
