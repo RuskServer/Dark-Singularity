@@ -40,6 +40,29 @@ fn test_save_and_load() {
 }
 
 #[test]
+fn test_state_size_mismatch_validation() {
+    let path = "mismatch_test.dsym";
+    
+    // 1. 状態数 64 で保存
+    {
+        let sing = Singularity::new(64, vec![4]);
+        sing.save_to_file(path).expect("Save failed");
+    }
+
+    // 2. 状態数 128 のインスタンスでロードを試みる -> エラーになるべき
+    {
+        let mut sing = Singularity::new(128, vec![4]);
+        let result = sing.load_from_file(path);
+        assert!(result.is_err(), "Should fail due to state_size mismatch");
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Incompatible state size"));
+        }
+    }
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
 fn test_optimization_logic() {
     let mut sing = Singularity::new(64, vec![8]);
     sing.system_temperature = 0.5;

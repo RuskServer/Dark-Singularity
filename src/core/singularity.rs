@@ -293,7 +293,10 @@ impl Singularity {
 
         // Header
         file.write_all(b"DSYM")?;
-        file.write_all(&3u32.to_le_bytes())?; // Version 3 (Count-based exploration)
+        file.write_all(&4u32.to_le_bytes())?; // Version 4 (Meta validation & Horizon state)
+
+        // Meta data
+        file.write_all(&(self.state_size as u32).to_le_bytes())?;
 
         // Parameters
         file.write_all(&self.system_temperature.to_le_bytes())?;
@@ -302,14 +305,17 @@ impl Singularity {
         file.write_all(&self.velocity_trust.to_le_bytes())?;
         file.write_all(&self.morale.to_le_bytes())?;
         file.write_all(&self.patience.to_le_bytes())?;
-        file.write_all(&self.exploration_beta.to_le_bytes())?; // New in V3
+        file.write_all(&self.exploration_beta.to_le_bytes())?;
+
+        // Horizon state (New in V4)
+        file.write_all(&self.horizon.glutamate_buffer.to_le_bytes())?;
 
         // Arrays
         for f in &self.fatigue_map {
             file.write_all(&f.to_le_bytes())?;
         }
 
-        // Visit Counts (New in V3)
+        // Visit Counts
         for &c in &self.visit_counts {
             file.write_all(&c.to_le_bytes())?;
         }
@@ -361,6 +367,17 @@ impl Singularity {
 
         let version = read_u32(&mut cursor)?;
         
+        // Version 4+: state_size check
+        if version >= 4 {
+            let loaded_state_size = read_u32(&mut cursor)? as usize;
+            if loaded_state_size != self.state_size {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Incompatible state size: expected {}, found {}", self.state_size, loaded_state_size)
+                ));
+            }
+        }
+
         self.system_temperature = read_f32(&mut cursor)?;
         self.adrenaline = read_f32(&mut cursor)?;
         self.frustration = read_f32(&mut cursor)?;
@@ -372,6 +389,11 @@ impl Singularity {
             self.exploration_beta = read_f32(&mut cursor)?;
         }
 
+        // Horizon state
+        if version >= 4 {
+            self.horizon.glutamate_buffer = read_f32(&mut cursor)?;
+        }
+
         if version >= 2 {
             // Fatigue map load
             for i in 0..self.action_size {
@@ -379,6 +401,7 @@ impl Singularity {
             }
 
             if version >= 3 {
+                // visit_counts の読み込み (ファイル側のカウントを優先)
                 for i in 0..self.visit_counts.len() {
                     self.visit_counts[i] = read_u32(&mut cursor)?;
                 }
@@ -396,10 +419,11 @@ impl Singularity {
                     self.q_table[i] = read_f32(&mut cursor)?;
                 }
             } else {
+                // 不一致の場合はスキップ (V4であれば state_size が一致しているので計算可能)
                 cursor += (self.state_size * loaded_cats.iter().sum::<usize>()) * 4;
             }
         }
-        // ... (Rest of nodes loading remains same)
+
         // Nodes
         let node_count = read_u32(&mut cursor)? as usize;
         for i in 0..node_count.min(self.nodes.len()) {
@@ -412,5 +436,6 @@ impl Singularity {
 
         Ok(())
     }
+
 
 }
