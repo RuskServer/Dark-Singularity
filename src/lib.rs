@@ -9,16 +9,23 @@ pub mod core;
 // インスタンスを生成して Java にポインタ(jlong)として返す
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_initNativeSingularity(
-    _env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
+    state_size: jint,
+    category_sizes: JIntArray,
 ) -> jlong {
-    let singularity = Box::new(Singularity::new(512, 8)); // アクション数8、状態数512で初期化
+    // JNIのint配列をRustのVec<usize>に変換
+    let len = env.get_array_length(&category_sizes).unwrap_or(0) as usize;
+    let mut cat_buf = vec![0i32; len];
+    env.get_int_array_region(&category_sizes, 0, &mut cat_buf).unwrap_or(());
+    
+    let cat_sizes: Vec<usize> = cat_buf.into_iter().map(|s| s as usize).collect();
+
+    let singularity = Box::new(Singularity::new(state_size as usize, cat_sizes));
     Box::into_raw(singularity) as jlong
 }
 
 // Java からもらったポインタを使って計算する
-// src/lib.rs の selectActionNative 部分
-
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_selectActionNative(
     env: JNIEnv,
@@ -28,28 +35,39 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
 ) -> jint {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
 
-    // --- 修正箇所：JNI配列からRustのVecへ ---
-    // 1. 安全にJNI配列の要素を取得
     let input_vec: Vec<f32> = {
-        // 配列を読み取ってコピーする（要素数を取得して変換）
         let len = env.get_array_length(&inputs).unwrap_or(0) as usize;
         let mut buf = vec![0.0f32; len];
-        env.get_float_array_region(&inputs, 0, &mut buf)
-            .unwrap_or(());
+        env.get_float_array_region(&inputs, 0, &mut buf).unwrap_or(());
         buf
     };
-    // ------------------------------------
 
-    // input_vec を使って状態インデックスを計算するロジック（Java版のロジックに合わせて）
-    // 一旦、Javaから渡される情報の先頭を state_idx と仮定するか、
-    // あるいは Java 側で計算済みの idx を引数に追加するのもアリです。
-    let state_idx = if !input_vec.is_empty() {
-        input_vec[0] as usize
-    } else {
-        0
-    };
+    let state_idx = if !input_vec.is_empty() { input_vec[0] as usize } else { 0 };
 
-    singularity.select_action(state_idx) as jint
+    // 最初のカテゴリーのベストアクションを返す (単一アクション互換)
+    let actions = singularity.select_actions(state_idx);
+    actions.first().cloned().unwrap_or(0) as jint
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_selectActionsNative(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    inputs: JFloatArray,
+) -> jintArray {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    
+    let len = env.get_array_length(&inputs).unwrap_or(0) as usize;
+    let mut buf = vec![0.0f32; len];
+    env.get_float_array_region(&inputs, 0, &mut buf).unwrap_or(());
+    let state_idx = if !buf.is_empty() { buf[0] as usize } else { 0 };
+
+    let actions = singularity.select_actions(state_idx);
+
+    let output = env.new_int_array(actions.len() as jsize).unwrap();
+    env.set_int_array_region(&output, 0, &actions).unwrap();
+    output.into_raw()
 }
 
 // 学習（経験の消化）を Rust 側で実行
@@ -61,7 +79,8 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     reward: jfloat,
 ) {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
-    singularity.learn(reward);
+    // 最後に選択されたアクション群に対して報酬を適用
+    singularity.learn(reward as f32);
 }
 
 // src/lib.rs
@@ -213,49 +232,4 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
             -2 // Load Error
         }
     }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_selectActionsNative(
-    env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    inputs: JFloatArray,
-) -> jintArray {
-    let singularity = unsafe { &mut *(handle as *mut Singularity) };
-    
-    // 入力取得（既存ロジック）
-    let len = env.get_array_length(&inputs).unwrap_or(0) as usize;
-    let mut buf = vec![0.0f32; len];
-    env.get_float_array_region(&inputs, 0, &mut buf).unwrap_or(());
-    let state_idx = if !buf.is_empty() { buf[0] as usize } else { 0 };
-
-    // マルチアクション選択
-    let actions = singularity.select_multitask_actions(state_idx);
-
-    // jintArrayとしてJavaに返す
-    let output = env.new_int_array(actions.len() as jsize).unwrap();
-    env.set_int_array_region(&output, 0, &actions).unwrap();
-    output.into_raw()
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_learnMultiNative(
-    env: JNIEnv,
-    _class: JClass,
-    handle: jlong,
-    applied_actions: JIntArray, // Java側で実行したアクションの配列 [0, 5] など
-    reward: jfloat,
-) {
-    let singularity = unsafe { &mut *(handle as *mut Singularity) };
-    
-    // JNIのint配列をRustのVecに変換
-    let len = env.get_array_length(&applied_actions).unwrap_or(0) as usize;
-    let mut actions = vec![0i32; len];
-    env.get_int_array_region(&applied_actions, 0, &mut actions).unwrap_or(());
-
-    let actions_usize: Vec<usize> = actions.into_iter().map(|a| a as usize).collect();
-
-    // 拡張した学習メソッドを呼び出し
-    singularity.learn_multi(&actions_usize, reward as f32);
 }

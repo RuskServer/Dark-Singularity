@@ -12,13 +12,14 @@ pub struct Singularity {
     pub adrenaline: f32,
     pub frustration: f32,
     pub velocity_trust: f32,
-    pub fatigue_map: Vec<f32>, // 可変長へ: [f32; 8] -> Vec<f32>
+    pub fatigue_map: Vec<f32>,
     pub morale: f32,
     pub patience: f32,
-    pub q_table: Vec<f32>,     // 状態数 * アクション数
-    pub action_size: usize,    // 追加: アクション数を保持
-    pub state_size: usize,     // 追加: 状態数を保持 (デフォルト512)
-    pub last_action_idx: usize,
+    pub q_table: Vec<f32>,     // 状態数 * 合計アクション数
+    pub category_sizes: Vec<usize>, // 追加: 各カテゴリーのアクション数
+    pub action_size: usize,    // 合計アクション数
+    pub state_size: usize,
+    pub last_actions: Vec<usize>, // 最後に選択されたアクション群
     pub last_state_idx: usize,
 
     pub idx_aggression: usize,
@@ -28,13 +29,15 @@ pub struct Singularity {
 }
 
 impl Singularity {
-    pub fn new(state_size: usize, action_size: usize) -> Self {
+    pub fn new(state_size: usize, category_sizes: Vec<usize>) -> Self {
         let nodes = vec![
             Node::new(0.5), // Aggression
             Node::new(0.4), // Fear
             Node::new(0.3), // Tactical
             Node::new(0.3), // Reflex
         ];
+
+        let total_action_size: usize = category_sizes.iter().sum();
 
         Self {
             nodes,
@@ -44,13 +47,14 @@ impl Singularity {
             adrenaline: 0.0,
             frustration: 0.0,
             velocity_trust: 1.0,
-            fatigue_map: vec![0.0; action_size],
+            fatigue_map: vec![0.0; total_action_size],
             morale: 1.0,
             patience: 1.0,
-            q_table: vec![0.0; state_size * action_size],
-            action_size,
+            q_table: vec![0.0; state_size * total_action_size],
+            category_sizes: category_sizes.clone(),
+            action_size: total_action_size,
             state_size,
-            last_action_idx: 0,
+            last_actions: vec![0; category_sizes.len()],
             last_state_idx: 0,
             idx_aggression: 0,
             idx_fear: 1,
@@ -59,53 +63,65 @@ impl Singularity {
         }
     }
 
-    pub fn select_action(&mut self, state_idx: usize) -> usize {
+    /// 各カテゴリーから最適なアクションを1つずつ選択する
+    pub fn select_actions(&mut self, state_idx: usize) -> Vec<i32> {
         self.last_state_idx = state_idx;
-        let mut best_action = 4; // Default: OBSERVE
+        let mut results = Vec::with_capacity(self.category_sizes.len());
+        let mut current_offset = 0;
+
+        for (cat_idx, &size) in self.category_sizes.iter().enumerate() {
+            let best_action_in_cat = self.get_best_in_range(state_idx, current_offset, size);
+            self.last_actions[cat_idx] = current_offset + best_action_in_cat;
+            results.push(best_action_in_cat as i32);
+            current_offset += size;
+        }
+
+        results
+    }
+
+    fn get_best_in_range(&self, state_idx: usize, offset: usize, size: usize) -> usize {
+        let mut best = 0;
         let mut max_score = -f32::INFINITY;
+        let base_offset = state_idx * self.action_size + offset;
 
-        let base_offset = state_idx * 8;
-
-        for action_idx in 0..8 {
-            // Q値 + ニューロンの活性度（Aggressionなど）を統合してスコアリング
-            let q_value = self.q_table[base_offset + action_idx];
-
-            // 例: Action 0 (ATTACK) なら Aggression ノードの状態を重畳
-            let neuron_boost = match action_idx {
+        for i in 0..size {
+            let q_value = self.q_table[base_offset + i];
+            
+            // ニューロンによる補正 (カテゴリー内での相対インデックスで判断)
+            // ここは必要に応じてカテゴリーごとの特性をJavaから渡せるようにしても良い
+            let neuron_boost = match i {
                 0 => self.nodes[self.idx_aggression].state * 1.5,
                 1 => self.nodes[self.idx_fear].state * 1.2,
                 _ => 0.0,
             };
-
-            let score = q_value + neuron_boost + (self.morale * 0.2);
+            
+            let score = q_value + neuron_boost + (self.morale * 0.1);
 
             if score > max_score {
                 max_score = score;
-                best_action = action_idx;
+                best = i;
             }
         }
-
-        self.last_action_idx = best_action;
-        best_action
+        best
     }
 
-    /// [TQH-Learning] 学習ロジックの完成版
+    /// 最後に選択された全アクションに対して一括で学習を実行
     pub fn learn(&mut self, reward: f32) {
-        let state_offset = self.last_state_idx * 8;
-        let current_q = self.q_table[state_offset + self.last_action_idx];
-
-        // 予測誤差 (TD Error)
-        let td_error = reward - current_q;
-
-        // TQH: 誤差が温度を上げ、熱が学習率(Alpha)をブーストする
         let learning_rate = 0.1 * (1.0 + self.system_temperature);
+        let mut total_td_error = 0.0;
 
-        // Q値の更新
-        self.q_table[state_offset + self.last_action_idx] += learning_rate * td_error;
+        for &action_idx in &self.last_actions {
+            let q_idx = self.last_state_idx * self.action_size + action_idx;
+            let current_q = self.q_table[q_idx];
+            let td_error = reward - current_q;
+            self.q_table[q_idx] += learning_rate * td_error;
+            total_td_error += td_error.abs();
+        }
 
-        // 経験の消化（温度変化とトポロジー再編）を呼び出し
+        let avg_td_error = total_td_error / (self.last_actions.len() as f32).max(1.0);
+
         self.digest_experience(
-            td_error,
+            avg_td_error,
             reward,
             if reward < 0.0 { reward.abs() } else { 0.0 },
         );
@@ -223,44 +239,6 @@ impl Singularity {
         }
     }
 
-    // 例: カテゴリー分け
-    // 0-3: 移動系 (静止, 前進, 後退, 回避)
-    // 4-7: 行動系 (待機, 攻撃, スキル, 防御)
-
-    pub fn select_multitask_actions(&mut self, state_idx: usize) -> Vec<i32> {
-        self.last_state_idx = state_idx;
-        let base_offset = state_idx * self.action_size;
-
-        // カテゴリーごとに最高スコアを探す
-        let movement_action = self.get_best_in_range(base_offset, 0..4);
-        let combat_action = self.get_best_in_range(base_offset, 4..8);
-
-        self.last_action_idx = movement_action; // 簡略化のため一つを記録（本来は履歴もマルチ化すべき）
-        vec![movement_action as i32, combat_action as i32]
-    }
-
-    fn get_best_in_range(&self, base_offset: usize, range: std::ops::Range<usize>) -> usize {
-        let mut best = range.start;
-        let mut max_score = -f32::INFINITY;
-
-        for action_idx in range {
-            let q_value = self.q_table[base_offset + action_idx];
-            // ニューロンによる補正（既存ロジックを流用）
-            let neuron_boost = match action_idx {
-                0 => self.nodes[self.idx_aggression].state * 1.5, // 攻撃
-                1 => self.nodes[self.idx_fear].state * 1.2,       // 回避
-                _ => 0.0,
-            };
-            let score = q_value + neuron_boost;
-
-            if score > max_score {
-                max_score = score;
-                best = action_idx;
-            }
-        }
-        best
-    }
-
     pub fn update_all_nodes(&mut self, input_signals: &[f32], urgency: f32) {
         // 1. 全ノードの「現在の状態」だけを抜き出した配列を作る
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
@@ -291,8 +269,9 @@ impl Singularity {
         [VelocityTrust] f32
         [Morale] f32
         [Patience] f32
-        [FatigueMap] f32 * 8
-        [QTable] f32 * 4096 (512 * 8)
+        [FatigueMap] f32 * action_size
+        [CategorySizes] count: u32 -> [size: u32] * count
+        [QTable] f32 * (state_size * action_size)
         [Nodes] count: u32 -> [state: f32, base_decay: f32] * count
     */
 
@@ -301,7 +280,7 @@ impl Singularity {
 
         // Header
         file.write_all(b"DSYM")?;
-        file.write_all(&1u32.to_le_bytes())?; // Version
+        file.write_all(&2u32.to_le_bytes())?; // Version 2 (Dynamic categories)
 
         // Parameters
         file.write_all(&self.system_temperature.to_le_bytes())?;
@@ -314,6 +293,12 @@ impl Singularity {
         // Arrays
         for f in &self.fatigue_map {
             file.write_all(&f.to_le_bytes())?;
+        }
+
+        // Category Sizes
+        file.write_all(&(self.category_sizes.len() as u32).to_le_bytes())?;
+        for &s in &self.category_sizes {
+            file.write_all(&(s as u32).to_le_bytes())?;
         }
 
         for q in &self.q_table {
@@ -335,107 +320,70 @@ impl Singularity {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
-        // Helper to read slices without capturing cursor mutably via closure loop
         let mut cursor = 0;
 
-        let read_u32_at = |pos: usize| -> io::Result<u32> {
-            if pos + 4 > buffer.len() {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF"));
-            }
-            Ok(u32::from_le_bytes(buffer[pos..pos + 4].try_into().unwrap()))
+        let read_u32 = |pos: &mut usize| -> io::Result<u32> {
+            if *pos + 4 > buffer.len() { return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF")); }
+            let val = u32::from_le_bytes(buffer[*pos..*pos + 4].try_into().unwrap());
+            *pos += 4;
+            Ok(val)
         };
-        let read_f32_at = |pos: usize| -> io::Result<f32> {
-            if pos + 4 > buffer.len() {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF"));
-            }
-            Ok(f32::from_le_bytes(buffer[pos..pos + 4].try_into().unwrap()))
+        let read_f32 = |pos: &mut usize| -> io::Result<f32> {
+            if *pos + 4 > buffer.len() { return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF")); }
+            let val = f32::from_le_bytes(buffer[*pos..*pos + 4].try_into().unwrap());
+            *pos += 4;
+            Ok(val)
         };
 
-        // Header check
         if buffer.len() < 4 || &buffer[0..4] != b"DSYM" {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid magic bytes",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid magic bytes"));
         }
         cursor += 4;
 
-        let _version = read_u32_at(cursor)?;
-        cursor += 4;
+        let version = read_u32(&mut cursor)?;
+        
+        self.system_temperature = read_f32(&mut cursor)?;
+        self.adrenaline = read_f32(&mut cursor)?;
+        self.frustration = read_f32(&mut cursor)?;
+        self.velocity_trust = read_f32(&mut cursor)?;
+        self.morale = read_f32(&mut cursor)?;
+        self.patience = read_f32(&mut cursor)?;
 
-        self.system_temperature = read_f32_at(cursor)?;
-        cursor += 4;
-        self.adrenaline = read_f32_at(cursor)?;
-        cursor += 4;
-        self.frustration = read_f32_at(cursor)?;
-        cursor += 4;
-        self.velocity_trust = read_f32_at(cursor)?;
-        cursor += 4;
-        self.morale = read_f32_at(cursor)?;
-        cursor += 4;
-        self.patience = read_f32_at(cursor)?;
-        cursor += 4;
+        if version >= 2 {
+            // Fatigue map load based on current action size
+            for i in 0..self.action_size {
+                self.fatigue_map[i] = read_f32(&mut cursor)?;
+            }
 
-        for i in 0..8 {
-            self.fatigue_map[i] = read_f32_at(cursor)?;
-            cursor += 4;
-        }
-
-        // Load Q-Table
-        let q_len = 512 * 8;
-        for i in 0..q_len {
-            self.q_table[i] = read_f32_at(cursor)?;
-            cursor += 4;
+            let cat_count = read_u32(&mut cursor)? as usize;
+            let mut loaded_cats = Vec::with_capacity(cat_count);
+            for _ in 0..cat_count {
+                loaded_cats.push(read_u32(&mut cursor)? as usize);
+            }
+            
+            // カテゴリー構成が一致する場合のみQテーブルをロード (簡易チェック)
+            if loaded_cats == self.category_sizes {
+                for i in 0..self.q_table.len() {
+                    self.q_table[i] = read_f32(&mut cursor)?;
+                }
+            } else {
+                // 不一致の場合はスキップ、あるいはエラーにする
+                cursor += (self.state_size * loaded_cats.iter().sum::<usize>()) * 4;
+            }
+        } else {
+            // Version 1 fallback (legacy support if needed)
         }
 
         // Nodes
-        let node_count = read_u32_at(cursor)? as usize;
-        cursor += 4;
-
-        // Don't resize nodes vec if count matches, to preserve roles (aggression/fear etc)
-        // If count mismatch, we might have an issue, but for now optimization: assume structure is same
-        if node_count != self.nodes.len() {
-            // In a real implementation we might want to resize or error
+        let node_count = read_u32(&mut cursor)? as usize;
+        for i in 0..node_count.min(self.nodes.len()) {
+            self.nodes[i].state = read_f32(&mut cursor)?;
+            self.nodes[i].base_decay = read_f32(&mut cursor)?;
         }
 
-        for i in 0..self.nodes.len() {
-            self.nodes[i].state = read_f32_at(cursor)?;
-            cursor += 4;
-            self.nodes[i].base_decay = read_f32_at(cursor)?;
-            cursor += 4;
-        }
-
-        // Post-load: Force topology update to match loaded temperature
         self.last_topology_update_temp = -1.0;
         self.reshape_topology();
 
         Ok(())
-    }
-
-    // --- 既存の learn をマルチアクション対応にオーバーロード/拡張 ---
-    pub fn learn_multi(&mut self, actions: &[usize], reward: f32) {
-        // 各アクションに対して個別に学習を実行
-        for &action_idx in actions {
-            let state_offset = self.last_state_idx * self.action_size;
-            let current_q = self.q_table[state_offset + action_idx];
-
-            // 予測誤差 (TD Error)
-            let td_error = reward - current_q;
-
-            // TQHブースト
-            let learning_rate = 0.1 * (1.0 + self.system_temperature);
-
-            // Q値の更新
-            self.q_table[state_offset + action_idx] += learning_rate * td_error;
-        }
-
-        // 経験の消化（温度変化）は、TD誤差の平均値や最大値で行う
-        // ここでは最も「意外性の高かった（誤差が大きかった）結果」を温度に反映
-        let max_td_error = reward; // 簡易的な実装
-        self.digest_experience(
-            max_td_error,
-            reward,
-            if reward < 0.0 { reward.abs() } else { 0.0 },
-        );
     }
 }

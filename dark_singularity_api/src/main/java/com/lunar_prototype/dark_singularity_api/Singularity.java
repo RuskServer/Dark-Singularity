@@ -77,12 +77,11 @@ public class Singularity implements AutoCloseable {
     }
 
     // --- Native Methods ---
-    private native long initNativeSingularity();
+    private native long initNativeSingularity(int stateSize, int[] categorySizes);
     private native void destroyNativeSingularity(long handle);
     private native int selectActionNative(long handle, float[] inputs);
     private native int[] selectActionsNative(long handle, float[] inputs);
     private native void learnNative(long handle, float reward);
-    private native void learnMultiNative(long handle, int[] applied_actions, float reward);
     private native float getSystemTemperature(long handle);
     private native float getGliaActivityNative(long handle);
     private native float getActionScoreNative(long handle, int action_idx);
@@ -92,8 +91,17 @@ public class Singularity implements AutoCloseable {
     private native int saveNativeModel(long handle, String path);
     private native int loadNativeModel(long handle, String path);
 
-    public Singularity() {
-        this.handle = initNativeSingularity();
+    /**
+     * Initializes a new Singularity instance with dynamic action categories.
+     * 
+     * @param stateSize Total number of possible environmental states.
+     * @param categorySizes Sizes of each action category (e.g., 5 for movement, 3 for combat).
+     */
+    public Singularity(int stateSize, int... categorySizes) {
+        if (categorySizes == null || categorySizes.length == 0) {
+            throw new IllegalArgumentException("At least one action category must be defined.");
+        }
+        this.handle = initNativeSingularity(stateSize, categorySizes);
         if (this.handle == 0) {
             throw new IllegalStateException("Failed to initialize native Singularity instance.");
         }
@@ -101,20 +109,26 @@ public class Singularity implements AutoCloseable {
 
     // --- Public Java API ---
 
+    /**
+     * Selects the best action for the first defined category.
+     */
     public int selectAction(float[] inputs) {
         return selectActionNative(handle, inputs);
     }
 
+    /**
+     * Selects the best action for EACH defined category.
+     * Returns an array where each index corresponds to a category.
+     */
     public int[] selectActions(float[] inputs) {
         return selectActionsNative(handle, inputs);
     }
     
+    /**
+     * Learns from the reward, applying it to the last selected set of actions.
+     */
     public void learn(float reward) {
         learnNative(handle, reward);
-    }
-
-    public void learnMulti(int[] appliedActions, float reward) {
-        learnMultiNative(handle, appliedActions, reward);
     }
 
     public float getSystemTemperature() {
