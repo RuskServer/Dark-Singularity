@@ -166,6 +166,27 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_setExplorationBetaNative(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    beta: jfloat,
+) {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    singularity.exploration_beta = beta as f32;
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getExplorationBetaNative(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jfloat {
+    let singularity = unsafe { &*(handle as *const Singularity) };
+    singularity.exploration_beta as jfloat
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getNeuronStates(
     env: JNIEnv,
     _class: JClass,
@@ -232,4 +253,32 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
             -2 // Load Error
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_bootstrapNative(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    state_indices: JIntArray,
+    action_indices: JIntArray,
+    biases: JFloatArray,
+) {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    let mut bootstrapper = crate::core::knowledge::Bootstrapper::new();
+
+    let len = env.get_array_length(&state_indices).unwrap_or(0) as usize;
+    let mut states = vec![0i32; len];
+    let mut actions = vec![0i32; len];
+    let mut bias_vals = vec![0.0f32; len];
+
+    env.get_int_array_region(&state_indices, 0, &mut states).unwrap_or(());
+    env.get_int_array_region(&action_indices, 0, &mut actions).unwrap_or(());
+    env.get_float_array_region(&biases, 0, &mut bias_vals).unwrap_or(());
+
+    for i in 0..len {
+        bootstrapper.add_rule(states[i] as usize, actions[i] as usize, bias_vals[i]);
+    }
+
+    bootstrapper.apply(singularity);
 }

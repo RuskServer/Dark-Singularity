@@ -88,8 +88,11 @@ public class Singularity implements AutoCloseable {
     private native float getFrustration(long handle);
     private native float getAdrenaline(long handle);
     private native float[] getNeuronStates(long handle);
+    private native void setExplorationBetaNative(long handle, float beta);
+    private native float getExplorationBetaNative(long handle);
     private native int saveNativeModel(long handle, String path);
     private native int loadNativeModel(long handle, String path);
+    private native void bootstrapNative(long handle, int[] stateIndices, int[] actionIndices, float[] biases);
 
     /**
      * Initializes a new Singularity instance with dynamic action categories.
@@ -151,6 +154,14 @@ public class Singularity implements AutoCloseable {
         return getAdrenaline(handle);
     }
 
+    public void setExplorationBeta(float beta) {
+        setExplorationBetaNative(handle, beta);
+    }
+
+    public float getExplorationBeta() {
+        return getExplorationBetaNative(handle);
+    }
+
     public float[] getNeuronStates() {
         return getNeuronStates(handle);
     }
@@ -161,6 +172,21 @@ public class Singularity implements AutoCloseable {
 
     public int loadModel(String path) {
         return loadNativeModel(handle, path);
+    }
+
+    /**
+     * Injects domain knowledge into the model's Q-table to improve initial inference.
+     * 
+     * @param stateIndices  Indices of environmental states to apply knowledge to.
+     * @param actionIndices Indices of actions within those states.
+     * @param biases        Weights/Bias values to set in the Q-table.
+     */
+    public void bootstrap(int[] stateIndices, int[] actionIndices, float[] biases) {
+        if (stateIndices == null || actionIndices == null || biases == null ||
+            stateIndices.length != actionIndices.length || actionIndices.length != biases.length) {
+            throw new IllegalArgumentException("Arrays must be non-null and have the same length.");
+        }
+        bootstrapNative(handle, stateIndices, actionIndices, biases);
     }
 
     @Override

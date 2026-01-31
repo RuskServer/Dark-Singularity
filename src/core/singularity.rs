@@ -22,6 +22,9 @@ pub struct Singularity {
     pub last_actions: Vec<usize>, // 最後に選択されたアクション群
     pub last_state_idx: usize,
 
+    pub visit_counts: Vec<u32>,    // カウントベース探査用: 状態数 * 合計アクション数
+    pub exploration_beta: f32,    // 探査の強さ
+
     pub idx_aggression: usize,
     pub idx_fear: usize,
     pub idx_tactical: usize,
@@ -56,6 +59,8 @@ impl Singularity {
             state_size,
             last_actions: vec![0; category_sizes.len()],
             last_state_idx: 0,
+            visit_counts: vec![0; state_size * total_action_size],
+            exploration_beta: 0.1, // デフォルトの探査定数
             idx_aggression: 0,
             idx_fear: 1,
             idx_tactical: 2,
@@ -85,17 +90,21 @@ impl Singularity {
         let base_offset = state_idx * self.action_size + offset;
 
         for i in 0..size {
-            let q_value = self.q_table[base_offset + i];
+            let q_idx = base_offset + i;
+            let q_value = self.q_table[q_idx];
             
-            // ニューロンによる補正 (カテゴリー内での相対インデックスで判断)
-            // ここは必要に応じてカテゴリーごとの特性をJavaから渡せるようにしても良い
+            // カウントベース探査ボーナス: beta / sqrt(count + 1)
+            let count = self.visit_counts[q_idx] as f32;
+            let exploration_bonus = self.exploration_beta / (count + 1.0).sqrt();
+
+            // ニューロンによる補正
             let neuron_boost = match i {
                 0 => self.nodes[self.idx_aggression].state * 1.5,
                 1 => self.nodes[self.idx_fear].state * 1.2,
                 _ => 0.0,
             };
             
-            let score = q_value + neuron_boost + (self.morale * 0.1);
+            let score = q_value + exploration_bonus + neuron_boost + (self.morale * 0.1);
 
             if score > max_score {
                 max_score = score;
@@ -112,6 +121,10 @@ impl Singularity {
 
         for &action_idx in &self.last_actions {
             let q_idx = self.last_state_idx * self.action_size + action_idx;
+            
+            // カウントを更新
+            self.visit_counts[q_idx] = self.visit_counts[q_idx].saturating_add(1);
+
             let current_q = self.q_table[q_idx];
             let td_error = reward - current_q;
             self.q_table[q_idx] += learning_rate * td_error;
@@ -280,7 +293,7 @@ impl Singularity {
 
         // Header
         file.write_all(b"DSYM")?;
-        file.write_all(&2u32.to_le_bytes())?; // Version 2 (Dynamic categories)
+        file.write_all(&3u32.to_le_bytes())?; // Version 3 (Count-based exploration)
 
         // Parameters
         file.write_all(&self.system_temperature.to_le_bytes())?;
@@ -289,10 +302,16 @@ impl Singularity {
         file.write_all(&self.velocity_trust.to_le_bytes())?;
         file.write_all(&self.morale.to_le_bytes())?;
         file.write_all(&self.patience.to_le_bytes())?;
+        file.write_all(&self.exploration_beta.to_le_bytes())?; // New in V3
 
         // Arrays
         for f in &self.fatigue_map {
             file.write_all(&f.to_le_bytes())?;
+        }
+
+        // Visit Counts (New in V3)
+        for &c in &self.visit_counts {
+            file.write_all(&c.to_le_bytes())?;
         }
 
         // Category Sizes
@@ -349,10 +368,20 @@ impl Singularity {
         self.morale = read_f32(&mut cursor)?;
         self.patience = read_f32(&mut cursor)?;
 
+        if version >= 3 {
+            self.exploration_beta = read_f32(&mut cursor)?;
+        }
+
         if version >= 2 {
-            // Fatigue map load based on current action size
+            // Fatigue map load
             for i in 0..self.action_size {
                 self.fatigue_map[i] = read_f32(&mut cursor)?;
+            }
+
+            if version >= 3 {
+                for i in 0..self.visit_counts.len() {
+                    self.visit_counts[i] = read_u32(&mut cursor)?;
+                }
             }
 
             let cat_count = read_u32(&mut cursor)? as usize;
@@ -361,19 +390,16 @@ impl Singularity {
                 loaded_cats.push(read_u32(&mut cursor)? as usize);
             }
             
-            // カテゴリー構成が一致する場合のみQテーブルをロード (簡易チェック)
+            // カテゴリー構成が一致する場合のみQテーブルをロード
             if loaded_cats == self.category_sizes {
                 for i in 0..self.q_table.len() {
                     self.q_table[i] = read_f32(&mut cursor)?;
                 }
             } else {
-                // 不一致の場合はスキップ、あるいはエラーにする
                 cursor += (self.state_size * loaded_cats.iter().sum::<usize>()) * 4;
             }
-        } else {
-            // Version 1 fallback (legacy support if needed)
         }
-
+        // ... (Rest of nodes loading remains same)
         // Nodes
         let node_count = read_u32(&mut cursor)? as usize;
         for i in 0..node_count.min(self.nodes.len()) {
@@ -386,4 +412,5 @@ impl Singularity {
 
         Ok(())
     }
+
 }
