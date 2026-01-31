@@ -34,7 +34,7 @@ Maven または Gradle を使用してプロジェクトに追加できます。
 <repositories>
     <repository>
         <id>ruskserver-releases</id>
-        <url>https://repo.ruskserver.com/repository/maven-releases/</url>
+        <url>https://repo.ruskserver.com/repository/maven-public/</url>
     </repository>
 </repositories>
 
@@ -52,7 +52,7 @@ Maven または Gradle を使用してプロジェクトに追加できます。
 
 ```kotlin
 repositories {
-    maven("https://repo.ruskserver.com/repository/maven-releases/")
+    maven("https://repo.ruskserver.com/repository/maven-public/")
 }
 
 dependencies {
