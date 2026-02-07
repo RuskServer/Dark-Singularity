@@ -4,7 +4,6 @@
 
 > **The Monolithic Wave-State Intelligence Engine**
 
-[![CI](https://icon.icepanel.io/Technology/svg/GitHub-Actions.svg)](https://github.com/RuskDev/dark-singularity/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.3.0--MWSO-purple.svg)](#)
 
