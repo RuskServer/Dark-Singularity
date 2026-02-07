@@ -1,6 +1,5 @@
 use super::singularity::Singularity;
 
-/// 知識ベースのルール定義
 pub struct KnowledgeRule {
     pub state_idx: usize,
     pub action_idx: usize,
@@ -24,18 +23,20 @@ impl Bootstrapper {
         });
     }
 
-    /// Singularity の Qテーブルに知識を注入する
+    /// MWSOのパラメータ(theta)に知識を注入する
     pub fn apply(&self, singularity: &mut Singularity) {
         for rule in &self.rules {
-            let q_idx = rule.state_idx * singularity.action_size + rule.action_idx;
-            if q_idx < singularity.q_table.len() {
-                // 既存のQ値を知識ベースのバイアスで上書き、または加算
-                // ここでは初期推論を強く誘導するため、直接代入に近い形で反映
-                singularity.q_table[q_idx] = rule.bias;
+            // MWSOの投影は action_idx * 16 + j で定義されている
+            // 指定されたアクションの投影重みをバイアスに基づいて強化する
+            for j in 0..16 {
+                let theta_idx = (rule.action_idx * 16 + j) % 512;
+                // バイアス分だけthetaをシフトさせる
+                singularity.mwso.theta[theta_idx] += rule.bias * 0.1;
+                singularity.mwso.theta[theta_idx] = singularity.mwso.theta[theta_idx].clamp(-2.0, 2.0);
             }
         }
         
-        // 知識注入後はシステムを一旦安定させるために温度を少し下げる
+        // 知識注入後はシステム温度を下げて安定させる
         singularity.system_temperature *= 0.8;
     }
 }

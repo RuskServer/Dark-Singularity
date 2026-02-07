@@ -131,15 +131,15 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
 ) -> jfloat {
     let singularity = unsafe { &*(handle as *const Singularity) };
 
-    // 現在の最新状態(last_state_idx)における、指定アクションのQ値を取得
-    let state_offset = singularity.last_state_idx * 8;
-    let idx = state_offset + (action_idx as usize);
+    // MWSOの現在の状態から全アクションの投影スコアを取得
+    // (特定のoffset/sizeを特定できないため、全体から取得する簡易実装)
+    let mwso_scores = singularity.mwso.get_action_scores(0, singularity.action_size);
+    let idx = action_idx as usize;
 
-    if idx < singularity.q_table.len() {
-        // 疲労度(fatigue_map)による減衰も考慮した「生のスコア」を返す
-        let q_value = singularity.q_table[idx];
-        let fatigue = singularity.fatigue_map[action_idx as usize];
-        (q_value - (fatigue * 2.0)) as jfloat
+    if idx < mwso_scores.len() {
+        let wave_score = mwso_scores[idx];
+        let fatigue = singularity.fatigue_map[idx];
+        (wave_score - (fatigue * 2.0)) as jfloat
     } else {
         0.0f32
     }
