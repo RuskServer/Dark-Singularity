@@ -218,6 +218,12 @@ impl Singularity {
         });
     }
 
+    pub fn set_neuron_state(&mut self, idx: usize, state: f32) {
+        if let Some(node) = self.nodes.get_mut(idx) {
+            node.state = state.clamp(0.0, 1.0);
+        }
+    }
+
     pub fn save_to_file(&self, path: &str) -> io::Result<()> {
         let mut file = File::create(path)?;
         file.write_all(b"DSYM")?;

@@ -187,6 +187,18 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_setNeuronStateNative(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    idx: jint,
+    state: jfloat,
+) {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    singularity.set_neuron_state(idx as usize, state as f32);
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getNeuronStates(
     env: JNIEnv,
     _class: JClass,

@@ -76,6 +76,12 @@ public class Singularity implements AutoCloseable {
         }
     }
 
+    // --- Constants for Default Neurons ---
+    public static final int IDX_AGGRESSION = 0;
+    public static final int IDX_FEAR = 1;
+    public static final int IDX_TACTICAL = 2;
+    public static final int IDX_REFLEX = 3;
+
     // --- Native Methods ---
     private native long initNativeSingularity(int stateSize, int[] categorySizes);
     private native void destroyNativeSingularity(long handle);
@@ -87,6 +93,7 @@ public class Singularity implements AutoCloseable {
     private native float getActionScoreNative(long handle, int action_idx);
     private native float getFrustration(long handle);
     private native float getAdrenaline(long handle);
+    private native void setNeuronStateNative(long handle, int idx, float state);
     private native float[] getNeuronStates(long handle);
     private native void setExplorationBetaNative(long handle, float beta);
     private native float getExplorationBetaNative(long handle);
@@ -152,6 +159,16 @@ public class Singularity implements AutoCloseable {
 
     public float getAdrenaline() {
         return getAdrenaline(handle);
+    }
+
+    /**
+     * Directly sets the state of a specific neuron.
+     * 
+     * @param idx   Index of the neuron (0-3 for default nodes).
+     * @param state Value between 0.0 and 1.0.
+     */
+    public void setNeuronState(int idx, float state) {
+        setNeuronStateNative(handle, idx, state);
     }
 
     public void setExplorationBeta(float beta) {
