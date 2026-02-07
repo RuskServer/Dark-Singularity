@@ -1,12 +1,15 @@
-# 🌌 Dark Singularity
+<div align="center">
+  
+# Dark Singularity
 
 > **The Monolithic Wave-State Intelligence Engine**
 
-[![CI](https://github.com/RuskDev/dark-singularity/actions/workflows/ci.yml/badge.svg)](https://github.com/RuskDev/dark-singularity/actions)
+[![CI](https://icon.icepanel.io/Technology/svg/GitHub-Actions.svg)](https://github.com/RuskDev/dark-singularity/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.3.0--MWSO-purple.svg)](#)
 
 `DarkSingularity` は、従来の「層」や「表」という概念を廃し、知能を単一の複素高次元空間における**波動の干渉**として定義する、究極の単一モデル型 AI エンジンです。
+</div>
 
 ---
 
