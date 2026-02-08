@@ -105,6 +105,28 @@ public class SingularityAI {
 }
 ```
 
+### 3. ⚡ Hamiltonian Scripting (Initial Knowledge)
+MWSOは学習（本能）だけでなく、ハミルトニアン・スクリプティングによる初期知識（理性）の注入が可能です。ルールは「if-then」の条件分岐ではなく、波動を特定の行動へ誘う**「外場（Potential Field）」**として機能します。
+
+```java
+// 1. ルールの登録 (初期化時)
+// 条件ID 0(LowHP) のとき、アクション 3(Evade) への引力を 0.8 の強さで発生させる
+ai.registerHamiltonianRules(
+    new int[]{0},      // Condition IDs
+    new int[]{3},      // Target Action Indices
+    new float[]{0.8f}  // Resonance Strengths
+);
+
+// 2. 状況の注入 (毎チック)
+if (entity.getHealth() < 5.0) {
+    ai.setActiveConditions(0); // LowHP 条件をアクティブ化
+} else {
+    ai.setActiveConditions();  // 条件クリア
+}
+
+// 以降の selectActions は、学習された直感と注入された理性のベクトル合成で決定される
+```
+
 ---
 
 ## 📊 Evolutionary Phases
