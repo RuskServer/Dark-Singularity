@@ -248,6 +248,10 @@ impl Singularity {
         super::visualizer::Visualizer::render_wave_snapshot(&self.mwso, path).is_ok()
     }
 
+    pub fn get_resonance_density(&self) -> f32 {
+        self.mwso.calculate_rhyd()
+    }
+
     pub fn save_to_file(&self, path: &str) -> io::Result<()> {
         let mut file = File::create(path)?;
         file.write_all(b"DSYM")?;
