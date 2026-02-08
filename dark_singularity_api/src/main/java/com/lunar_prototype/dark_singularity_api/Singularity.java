@@ -97,6 +97,7 @@ public class Singularity implements AutoCloseable {
     private native float[] getNeuronStates(long handle);
     private native void setExplorationBetaNative(long handle, float beta);
     private native float getExplorationBetaNative(long handle);
+    private native int generateVisualSnapshotNative(long handle, String path);
     private native int saveNativeModel(long handle, String path);
     private native int loadNativeModel(long handle, String path);
     private native void bootstrapNative(long handle, int[] stateIndices, int[] actionIndices, float[] biases);
@@ -177,6 +178,17 @@ public class Singularity implements AutoCloseable {
 
     public float getExplorationBeta() {
         return getExplorationBetaNative(handle);
+    }
+
+    /**
+     * Generates a 3D visualization of the current MWSO wave-state.
+     * Perfect for social preview or debugging the 'shape' of intelligence.
+     * 
+     * @param path File path to save the PNG (e.g., "wave.png").
+     * @return 0 on success, non-zero on error.
+     */
+    public int generateVisualSnapshot(String path) {
+        return generateVisualSnapshotNative(handle, path);
     }
 
     public float[] getNeuronStates() {

@@ -224,6 +224,10 @@ impl Singularity {
         }
     }
 
+    pub fn generate_visual_snapshot(&self, path: &str) -> bool {
+        super::visualizer::Visualizer::render_wave_snapshot(&self.mwso, path).is_ok()
+    }
+
     pub fn save_to_file(&self, path: &str) -> io::Result<()> {
         let mut file = File::create(path)?;
         file.write_all(b"DSYM")?;
