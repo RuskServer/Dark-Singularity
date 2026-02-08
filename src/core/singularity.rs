@@ -8,6 +8,8 @@ pub struct Singularity {
     pub nodes: Vec<Node>,
     pub horizon: Horizon,
     pub mwso: MWSO,
+    pub bootstrapper: crate::core::knowledge::Bootstrapper,
+    pub active_conditions: Vec<i32>, // 現在発動中の条件IDリスト
     pub system_temperature: f32,
     pub last_topology_update_temp: f32,
     pub adrenaline: f32,
@@ -45,6 +47,8 @@ impl Singularity {
             nodes,
             horizon: Horizon::new(),
             mwso: MWSO::new(),
+            bootstrapper: crate::core::knowledge::Bootstrapper::new(),
+            active_conditions: Vec::new(),
             system_temperature: 0.5,
             last_topology_update_temp: -1.0,
             adrenaline: 0.0,
@@ -64,6 +68,11 @@ impl Singularity {
             idx_tactical: 2,
             idx_reflex: 3,
         }
+    }
+
+    /// 外部から条件フラグ（HP低など）を注入する
+    pub fn set_active_conditions(&mut self, conditions: &[i32]) {
+        self.active_conditions = conditions.to_vec();
     }
 
     pub fn select_actions(&mut self, state_idx: usize) -> Vec<i32> {
@@ -90,12 +99,21 @@ impl Singularity {
 
     fn get_best_in_range(&self, offset: usize, size: usize) -> usize {
         let mwso_scores = self.mwso.get_action_scores(offset, size);
+        
+        // 理性の場 (Hamiltonian Field) の計算
+        let resonance_field = self.bootstrapper.calculate_resonance_field(&self.active_conditions, self.action_size);
+        
         let mut best = 0;
         let mut max_score = -f32::INFINITY;
 
         for i in 0..size {
+            // 1. 直感 (学習による波動投影)
             let wave_score = mwso_scores[i];
             
+            // 2. 理性 (ハミルトニアン外場)
+            let knowledge_field = resonance_field.get(offset + i).cloned().unwrap_or(0.0);
+            
+            // 3. 情動補正
             let neuron_boost = match i {
                 0 => self.nodes[self.idx_aggression].state * 0.5,
                 1 => self.nodes[self.idx_fear].state * 0.3,
@@ -103,7 +121,9 @@ impl Singularity {
             };
             
             let fatigue_penalty = self.fatigue_map[offset + i] * 0.5;
-            let score = wave_score + neuron_boost + (self.morale * 0.1) - fatigue_penalty;
+            
+            // ベクトル合成: 直感 + 理性 + 情動
+            let score = wave_score + knowledge_field + neuron_boost + (self.morale * 0.1) - fatigue_penalty;
 
             if score > max_score {
                 max_score = score;

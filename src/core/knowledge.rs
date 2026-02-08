@@ -1,13 +1,18 @@
 use super::singularity::Singularity;
 
-pub struct KnowledgeRule {
-    pub state_idx: usize,
-    pub action_idx: usize,
-    pub bias: f32,
+/// ハミルトニアン・ルール: 波動状態に対する「外場」としての知識
+pub struct HamiltonianRule {
+    /// 発動条件のインデックス (Java側からの指定を容易にするため ID制に)
+    /// 実装例: 0=HP低, 1=敵至近, 2=弾薬少 など
+    pub condition_id: i32,
+    /// 誘導したいアクションのインデックス
+    pub target_action: usize,
+    /// 知識の強制力 (resonance_strength)
+    pub strength: f32,
 }
 
 pub struct Bootstrapper {
-    pub rules: Vec<KnowledgeRule>,
+    pub rules: Vec<HamiltonianRule>,
 }
 
 impl Bootstrapper {
@@ -15,28 +20,25 @@ impl Bootstrapper {
         Self { rules: Vec::new() }
     }
 
-    pub fn add_rule(&mut self, state_idx: usize, action_idx: usize, bias: f32) {
-        self.rules.push(KnowledgeRule {
-            state_idx,
-            action_idx,
-            bias,
+    pub fn add_hamiltonian_rule(&mut self, condition_id: i32, target_action: usize, strength: f32) {
+        self.rules.push(HamiltonianRule {
+            condition_id,
+            target_action,
+            strength,
         });
     }
 
-    /// MWSOのパラメータ(theta)に知識を注入する
-    pub fn apply(&self, singularity: &mut Singularity) {
+    /// 現在の状況（外部から与えられた条件フラグ群）に基づき、
+    /// MWSOの各アクションに対する「外場（Resonance Field）」を計算する
+    pub fn calculate_resonance_field(&self, active_conditions: &[i32], action_size: usize) -> Vec<f32> {
+        let mut field = vec![0.0; action_size];
         for rule in &self.rules {
-            // MWSOの投影は action_idx * 16 + j で定義されている
-            // 指定されたアクションの投影重みをバイアスに基づいて強化する
-            for j in 0..16 {
-                let theta_idx = (rule.action_idx * 16 + j) % 512;
-                // バイアス分だけthetaをシフトさせる
-                singularity.mwso.theta[theta_idx] += rule.bias * 0.1;
-                singularity.mwso.theta[theta_idx] = singularity.mwso.theta[theta_idx].clamp(-2.0, 2.0);
+            if active_conditions.contains(&rule.condition_id) {
+                if rule.target_action < action_size {
+                    field[rule.target_action] += rule.strength;
+                }
             }
         }
-        
-        // 知識注入後はシステム温度を下げて安定させる
-        singularity.system_temperature *= 0.8;
+        field
     }
 }

@@ -284,29 +284,79 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_bootstrapNative(
+
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_setActiveConditionsNative(
+
     env: JNIEnv,
+
     _class: JClass,
+
     handle: jlong,
-    state_indices: JIntArray,
-    action_indices: JIntArray,
-    biases: JFloatArray,
+
+    condition_ids: JIntArray,
+
 ) {
+
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
-    let mut bootstrapper = crate::core::knowledge::Bootstrapper::new();
 
-    let len = env.get_array_length(&state_indices).unwrap_or(0) as usize;
-    let mut states = vec![0i32; len];
+    let len = env.get_array_length(&condition_ids).unwrap_or(0) as usize;
+
+    let mut buf = vec![0i32; len];
+
+    env.get_int_array_region(&condition_ids, 0, &mut buf).unwrap_or(());
+
+    
+
+    singularity.set_active_conditions(&buf);
+
+}
+
+
+
+#[unsafe(no_mangle)]
+
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_bootstrapNative(
+
+    env: JNIEnv,
+
+    _class: JClass,
+
+    handle: jlong,
+
+    condition_indices: JIntArray,
+
+    action_indices: JIntArray,
+
+    strengths: JFloatArray,
+
+) {
+
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+
+    
+
+    let len = env.get_array_length(&condition_indices).unwrap_or(0) as usize;
+
+    let mut conds = vec![0i32; len];
+
     let mut actions = vec![0i32; len];
-    let mut bias_vals = vec![0.0f32; len];
 
-    env.get_int_array_region(&state_indices, 0, &mut states).unwrap_or(());
+    let mut str_vals = vec![0.0f32; len];
+
+
+
+    env.get_int_array_region(&condition_indices, 0, &mut conds).unwrap_or(());
+
     env.get_int_array_region(&action_indices, 0, &mut actions).unwrap_or(());
-    env.get_float_array_region(&biases, 0, &mut bias_vals).unwrap_or(());
+
+    env.get_float_array_region(&strengths, 0, &mut str_vals).unwrap_or(());
+
+
 
     for i in 0..len {
-        bootstrapper.add_rule(states[i] as usize, actions[i] as usize, bias_vals[i]);
+
+        singularity.bootstrapper.add_hamiltonian_rule(conds[i], actions[i] as usize, str_vals[i]);
+
     }
 
-    bootstrapper.apply(singularity);
 }

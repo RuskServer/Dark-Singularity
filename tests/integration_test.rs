@@ -83,26 +83,55 @@ fn test_optimization_logic() {
 }
 
 #[test]
+
 fn test_knowledge_bootstrap() {
+
     use dark_singularity::core::knowledge::Bootstrapper;
 
+
+
     let state_size = 10;
+
     let cat_sizes = vec![4];
+
     let mut sing = Singularity::new(state_size, cat_sizes);
 
-    // Save initial theta value
-    let initial_theta = sing.mwso.theta[16]; // action 1 start index
+
 
     let mut bootstrapper = Bootstrapper::new();
-    bootstrapper.add_rule(1, 1, 0.95); // action 1 -> bias 0.95
 
-    bootstrapper.apply(&mut sing);
+    // 条件ID 1 がアクティブな時、アクション 1 に 0.95 のハミルトニアン・フォースをかける
 
-    // Theta should be updated
-    assert!(sing.mwso.theta[16] > initial_theta, "Theta should increase by bootstrap");
-    
-    // Verify it affects action selection
-    // Note: MWSO is dynamic, so we just ensure it selects *something* valid
+    bootstrapper.add_hamiltonian_rule(1, 1, 0.95); 
+
+
+
+    sing.bootstrapper = bootstrapper;
+
+
+
+    // 条件 1 を有効化
+
+    sing.set_active_conditions(&[1]);
+
+
+
+    // 意志決定を実行
+
     let actions = sing.select_actions(1);
+
     assert_eq!(actions.len(), 1);
+
+    assert_eq!(actions[0], 1, "Should select action 1 due to Hamiltonian field");
+
+
+
+    // 条件を無効化（空にする）
+
+    sing.set_active_conditions(&[]);
+
+    // 再度決定（波の影響が残る可能性があるが、外場はない）
+
+    let _ = sing.select_actions(1);
+
 }

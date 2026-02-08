@@ -100,7 +100,8 @@ public class Singularity implements AutoCloseable {
     private native int generateVisualSnapshotNative(long handle, String path);
     private native int saveNativeModel(long handle, String path);
     private native int loadNativeModel(long handle, String path);
-    private native void bootstrapNative(long handle, int[] stateIndices, int[] actionIndices, float[] biases);
+    private native void setActiveConditionsNative(long handle, int[] conditionIds);
+    private native void bootstrapNative(long handle, int[] conditionIndices, int[] actionIndices, float[] strengths);
 
     /**
      * Initializes a new Singularity instance with dynamic action categories.
@@ -204,24 +205,31 @@ public class Singularity implements AutoCloseable {
     }
 
     /**
-     * Injects domain knowledge into the model's Q-table to improve initial inference.
+     * Injects Hamiltonian rules into the model. 
+     * Rules act as "potential fields" that guide the agent's wave-state towards specific actions.
      * 
-     * @param stateIndices  Indices of environmental states to apply knowledge to.
-     * @param actionIndices Indices of actions within those states.
-     * @param biases        Weights/Bias values to set in the Q-table.
+     * @param conditionIds IDs of environmental conditions (e.g., 0 for LowHP, 1 for EnemyNear).
+     * @param actionIndices Target action indices to encourage.
+     * @param resonanceStrengths Strength of the knowledge field (1.0 = strong, 0.1 = subtle hint).
      */
-    public void bootstrap(int[] stateIndices, int[] actionIndices, float[] biases) {
-        if (stateIndices == null || actionIndices == null || biases == null ||
-            stateIndices.length != actionIndices.length || actionIndices.length != biases.length) {
+    public void registerHamiltonianRules(int[] conditionIds, int[] actionIndices, float[] resonanceStrengths) {
+        if (conditionIds == null || actionIndices == null || resonanceStrengths == null ||
+            conditionIds.length != actionIndices.length || actionIndices.length != resonanceStrengths.length) {
             throw new IllegalArgumentException("Arrays must be non-null and have the same length.");
         }
-        bootstrapNative(handle, stateIndices, actionIndices, biases);
+        bootstrapNative(handle, conditionIds, actionIndices, resonanceStrengths);
+    }
+
+    /**
+     * Sets the currently active environmental conditions.
+     * Rules associated with these IDs will exert "Hamiltonian force" on the current decision.
+     */
+    public void setActiveConditions(int... conditionIds) {
+        setActiveConditionsNative(handle, conditionIds);
     }
 
     @Override
     public void close() {
-        if (handle != 0) {
-            destroyNativeSingularity(handle);
-        }
+
     }
 }
