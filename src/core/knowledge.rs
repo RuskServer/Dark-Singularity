@@ -1,4 +1,4 @@
-use super::singularity::Singularity;
+// src/core/knowledge.rs
 
 /// ハミルトニアン・ルール: 波動状態に対する「外場」としての知識
 pub struct HamiltonianRule {
@@ -30,12 +30,15 @@ impl Bootstrapper {
 
     /// 現在の状況（外部から与えられた条件フラグ群）に基づき、
     /// MWSOの各アクションに対する「外場（Resonance Field）」を計算する
-    pub fn calculate_resonance_field(&self, active_conditions: &[i32], action_size: usize) -> Vec<f32> {
-        let mut field = vec![0.0; action_size];
+    /// 未定義のアクションに対しては 0.0 ではなく、None に相当する値を返せるようにし、
+    /// 知識が「ない」状態と「0である」状態を区別する
+    pub fn calculate_resonance_field(&self, active_conditions: &[i32], action_size: usize) -> Vec<Option<f32>> {
+        let mut field = vec![None; action_size];
         for rule in &self.rules {
             if active_conditions.contains(&rule.condition_id) {
                 if rule.target_action < action_size {
-                    field[rule.target_action] += rule.strength;
+                    let current = field[rule.target_action].unwrap_or(0.0);
+                    field[rule.target_action] = Some(current + rule.strength);
                 }
             }
         }

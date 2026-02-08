@@ -29,6 +29,9 @@ impl Node {
                 synaptic_input += state * synapse.weight;
             }
         }
+        
+        // 自己回帰的な特性の付与
+        synaptic_input += self.state * 0.1;
     
         // TQH: 温度による流動性(alpha)の計算
         let thermal_effect = (system_temp * 0.4).max(0.0);

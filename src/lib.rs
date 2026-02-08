@@ -129,11 +129,10 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     handle: jlong,
     action_idx: jint,
 ) -> jfloat {
-    let singularity = unsafe { &*(handle as *const Singularity) };
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
 
-    // MWSOの現在の状態から全アクションの投影スコアを取得
-    // (特定のoffset/sizeを特定できないため、全体から取得する簡易実装)
-    let mwso_scores = singularity.mwso.get_action_scores(0, singularity.action_size);
+    // JNI 経由のスコア取得ではノイズを乗せない。複素版に戻す
+    let mwso_scores = singularity.mwso.get_action_scores(0, singularity.action_size, 0.0, &[]);
     let idx = action_idx as usize;
 
     if idx < mwso_scores.len() {

@@ -14,7 +14,7 @@ impl Visualizer {
         let mut chart = ChartBuilder::on(&root)
             .margin(20)
             .caption("MWSO Wave-State Manifestation", ("sans-serif", 40).into_font().color(&WHITE))
-            .build_cartesian_3d(0.0..256.0, -1.2..1.2, -1.2..1.2)?;
+            .build_cartesian_3d(0.0..512.0, -1.2..1.2, -1.2..1.2)?;
 
         // 視点の設定（斜め上から）
         chart.with_projection(|mut pb| {
