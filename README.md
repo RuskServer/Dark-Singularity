@@ -4,10 +4,10 @@
 
 > **The Monolithic Wave-State Intelligence Engine**
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-GPL%20v3%20(Non--Military)-red.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.3.0-purple.svg)](#)
 
-`DarkSingularity` は、従来の「層」や「表」という概念を廃し、知能を単一の複素高次元空間における**波動の干渉**として定義する、究極の単一モデル型 AI エンジンです。
-</div>
+
 
 ---
 
@@ -157,6 +157,7 @@ if (entity.getHealth() < 5.0) {
 
 **本プロジェクトは RuskLabo (Lunar_prototype) の専属的な研究成果です。**
 
+- **Non-Military Use Only**: 本ソフトウェアの軍事転用、兵器開発、および国家主導の攻撃的活動への利用は、ライセンスにより厳格に禁じられています。
 - **Latest Only**: 常に最新のブランチ・バージョンのみをサポート対象とします。下位互換性の維持や過去バージョンの修正は行いません。
 - **No Support**: 過去のアーティファクトに関する問い合わせには応答しません。
 - **Destructive Updates**: 予告なしに内部構造や JNI シグネチャが変更される場合があります。
