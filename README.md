@@ -4,7 +4,6 @@
 
 > **The Monolithic Wave-State Intelligence Engine**
 
-[![License](https://img.shields.io/badge/license-DARK-SINGULARITY-NON-MILITARY-red.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.3.0-purple.svg)](#)
 
 
