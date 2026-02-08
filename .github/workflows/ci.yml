@@ -21,6 +21,13 @@ jobs:
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
 
+    # 3D可視化(plotters)に必要なシステムライブラリのインストール
+    - name: Install Dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfontconfig1-dev
+
     # ビルド時間を短縮するためのキャッシュ設定
     - name: Rust Cache
       uses: Swatinem/rust-cache@v2
