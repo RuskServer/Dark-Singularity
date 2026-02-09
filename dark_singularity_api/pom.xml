@@ -12,6 +12,7 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <skip.native.build>false</skip.native.build>
     </properties>
 
     <dependencies>
@@ -78,40 +79,71 @@
                 <version>3.2.0</version>
                 <executions>
                     <execution>
-                        <id>cargo-build</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>cargo</executable>
-                            <workingDirectory>..</workingDirectory>
-                            <arguments>
-                                <argument>build</argument>
-                                <argument>--release</argument>
-                            </arguments>
-                            <skip>${skip.native.build}</skip>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>copy-native-lib</id>
+                        <id>cargo-build-and-copy</id>
                         <phase>process-resources</phase>
                         <goals>
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>sh</executable>
+                            <executable>bash</executable>
+                            <workingDirectory>..</workingDirectory>
+                            <environmentVariables>
+                                <SKIP_NATIVE_BUILD>${skip.native.build}</SKIP_NATIVE_BUILD>
+                            </environmentVariables>
                             <arguments>
                                 <argument>-c</argument>
                                 <argument>
-                                    # アーキテクチャ判定
-                                    ARCH=$(uname -m | sed 's/x86_64/x86_64/' | sed 's/arm64/aarch64/' | sed 's/aarch64/aarch64/')
-                                    DEST="target/classes/native/${native.os}/$ARCH"
-                                    mkdir -p "$DEST"
-                                    cp ../target/release/${native.lib.name} "$DEST/"
+                                    set -e
+                                    if [ "$SKIP_NATIVE_BUILD" == "true" ]; then
+                                        echo "Skipping native build."
+                                        exit 0
+                                    fi
+
+                                    OS="${native.os}"
+                                    LIB_NAME="${native.lib.name}"
+                                    
+                                    if [ "$OS" == "macos" ]; then
+                                        echo "Detected macOS. Checking for architectures..."
+                                        
+                                        # Check and build for x86_64
+                                        if rustup target list --installed | grep -q "x86_64-apple-darwin"; then
+                                            echo "Building for x86_64-apple-darwin..."
+                                            cargo build --release --target x86_64-apple-darwin
+                                            mkdir -p dark_singularity_api/target/classes/native/macos/x86_64
+                                            cp target/x86_64-apple-darwin/release/$LIB_NAME dark_singularity_api/target/classes/native/macos/x86_64/
+                                        else
+                                            echo "x86_64 target not found. Trying default build..."
+                                            # Fallback if specific target missing but host is x86_64
+                                            if [ "$(uname -m)" == "x86_64" ]; then
+                                                cargo build --release
+                                                mkdir -p dark_singularity_api/target/classes/native/macos/x86_64
+                                                cp target/release/$LIB_NAME dark_singularity_api/target/classes/native/macos/x86_64/
+                                            fi
+                                        fi
+
+                                        # Check and build for aarch64
+                                        if rustup target list --installed | grep -q "aarch64-apple-darwin"; then
+                                            echo "Building for aarch64-apple-darwin..."
+                                            cargo build --release --target aarch64-apple-darwin
+                                            mkdir -p dark_singularity_api/target/classes/native/macos/aarch64
+                                            cp target/aarch64-apple-darwin/release/$LIB_NAME dark_singularity_api/target/classes/native/macos/aarch64/
+                                        else
+                                            echo "aarch64 target not found. Skipping."
+                                        fi
+                                        
+                                    else
+                                        # Linux / Windows
+                                        echo "Building for $OS..."
+                                        cargo build --release
+                                        
+                                        # Determine Arch
+                                        ARCH=$(uname -m | sed 's/x86_64/x86_64/' | sed 's/arm64/aarch64/' | sed 's/aarch64/aarch64/')
+                                        DEST="dark_singularity_api/target/classes/native/$OS/$ARCH"
+                                        mkdir -p "$DEST"
+                                        cp target/release/$LIB_NAME "$DEST/"
+                                    fi
                                 </argument>
                             </arguments>
-                            <skip>${skip.native.build}</skip>
                         </configuration>
                     </execution>
                 </executions>

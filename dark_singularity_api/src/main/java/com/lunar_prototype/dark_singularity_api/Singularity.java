@@ -69,10 +69,19 @@ public class Singularity implements AutoCloseable {
             Path tempLib = Files.createTempFile("dark_singularity_", extension);
             tempLib.toFile().deleteOnExit();
             Files.copy(in, tempLib, StandardCopyOption.REPLACE_EXISTING);
-            System.load(tempLib.toAbsolutePath().toString());
+            try {
+                System.load(tempLib.toAbsolutePath().toString());
+            } catch (UnsatisfiedLinkError e) {
+                if (os.contains("mac") && e.getMessage().contains("wrong architecture")) {
+                    throw new UnsatisfiedLinkError("Native library architecture mismatch on macOS. " +
+                            "JVM is running as " + arch + " (" + archDir + "), but the library at " + nativeResourcePath + " is incompatible. " +
+                            "Error: " + e.getMessage());
+                }
+                throw e;
+            }
             
-        } catch (IOException e) {
-            throw new UnsatisfiedLinkError("Failed to extract native library: " + e.getMessage());
+        } catch (IOException | UnsatisfiedLinkError e) {
+            throw new UnsatisfiedLinkError("Failed to load native library: " + e.getMessage());
         }
     }
 

@@ -42,19 +42,25 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Native Library
-        run: cargo build --release
-
-      - name: Determine Architecture
-        shell: bash
         run: |
-          ARCH=$(uname -m | sed 's/x86_64/x86_64/' | sed 's/arm64/aarch64/' | sed 's/aarch64/aarch64/')
-          echo "ARCH=$ARCH" >> $GITHUB_ENV
+          if [ "${{ matrix.os }}" == "macos-latest" ]; then
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+            cargo build --release --target aarch64-apple-darwin
+            cargo build --release --target x86_64-apple-darwin
+            mkdir -p target/artifacts
+            cp target/aarch64-apple-darwin/release/${{ matrix.artifact_name }} target/artifacts/aarch64-${{ matrix.artifact_name }}
+            cp target/x86_64-apple-darwin/release/${{ matrix.artifact_name }} target/artifacts/x86_64-${{ matrix.artifact_name }}
+          else
+            cargo build --release
+            mkdir -p target/artifacts
+            cp target/release/${{ matrix.artifact_name }} target/artifacts/${{ matrix.artifact_name }}
+          fi
 
       - name: Upload Native Library
         uses: actions/upload-artifact@v4
         with:
-          name: native-${{ matrix.os_dir }}-${{ env.ARCH }}
-          path: target/release/${{ matrix.artifact_name }}
+          name: native-${{ matrix.os_dir }}
+          path: target/artifacts/*
           if-no-files-found: error
 
   build-jar:
@@ -81,17 +87,18 @@ jobs:
 
       - name: Organize Artifacts for JAR
         run: |
-          # artifacts/{name}/{file} を src/main/resources/native/{os}/{arch}/{file} に整理
           mkdir -p dark_singularity_api/src/main/resources/native/linux/x86_64
           mkdir -p dark_singularity_api/src/main/resources/native/windows/x86_64
           mkdir -p dark_singularity_api/src/main/resources/native/macos/x86_64
           mkdir -p dark_singularity_api/src/main/resources/native/macos/aarch64
 
-          # 各OSの成果物をコピー (アーティファクト名に基づき分類)
-          find artifacts -name "libdark_singularity.so" -exec cp {} dark_singularity_api/src/main/resources/native/linux/x86_64/ \;
-          find artifacts -name "dark_singularity.dll" -exec cp {} dark_singularity_api/src/main/resources/native/windows/x86_64/ \;
-          find artifacts -name "libdark_singularity.dylib" -exec cp {} dark_singularity_api/src/main/resources/native/macos/x86_64/ \;
-          # macOS aarch64 (M1/M2) もしあれば。今回はmacos-latestがx86_64想定なので簡易化。
+          # Linux & Windows
+          [ -f artifacts/native-linux/libdark_singularity.so ] && cp artifacts/native-linux/libdark_singularity.so dark_singularity_api/src/main/resources/native/linux/x86_64/
+          [ -f artifacts/native-windows/dark_singularity.dll ] && cp artifacts/native-windows/dark_singularity.dll dark_singularity_api/src/main/resources/native/windows/x86_64/
+          
+          # macOS (Multi-arch)
+          [ -f artifacts/native-macos/x86_64-libdark_singularity.dylib ] && cp artifacts/native-macos/x86_64-libdark_singularity.dylib dark_singularity_api/src/main/resources/native/macos/x86_64/libdark_singularity.dylib
+          [ -f artifacts/native-macos/aarch64-libdark_singularity.dylib ] && cp artifacts/native-macos/aarch64-libdark_singularity.dylib dark_singularity_api/src/main/resources/native/macos/aarch64/libdark_singularity.dylib
 
       - name: Package JAR with Maven
         run: |
