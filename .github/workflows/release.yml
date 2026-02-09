@@ -42,6 +42,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Native Library
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" == "macos-latest" ]; then
             rustup target add aarch64-apple-darwin x86_64-apple-darwin
