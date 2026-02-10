@@ -4,37 +4,43 @@
 
 > **The Monolithic Wave-State Intelligence Engine**
 
-[![Version](https://img.shields.io/badge/version-1.3.0-purple.svg)](#)
+[![Version](https://img.shields.io/badge/version-1.5.0-purple.svg)](#)
 
 </div>
 
 ---
 
 ## 💎 The MWSO Architecture
-### Monolithic Wave-State Operator
+### Monolithic Wave-State Operator (V1.5 "Relativity & Flow")
 
-本エンジンは、512個のパラメータによって定義された**「知能という性質を持つ空間」**そのものです。上位も下位も、判断も行動も、すべては一つの波動体の中に重畳されています。
+本エンジンは、複素ラテント空間における波動干渉を核とした**「動的知能構造」**です。単なるマッピングではなく、空間内のエネルギー伝播、重力場、および時系列的な流れをシミュレートすることで知能を実現しています。
 
-- **🌊 Universal Dynamics**
-  情報は複素ラテント空間 ($\mathbb{C}^{256}$) における波として処理されます。
-  - **Strategy:** 空間全体のゆったりとした大きな「うねり」
-  - **Memory:** 空間に残り続ける定常波の「残響」
-  - **Reflex:** 瞬時に伝播する鋭い「衝撃波」
-- **🧬 Holographic Coupling**
-  隣接する成分のみならず、遠隔周波数同士を `stride` 結合。文脈が反射を直接変調する高次元ホログラムを形成。
-- **🚀 Table-less Intelligence (DSYM V6)**
-  Qテーブルを完全に排除。入力された環境状態は「波」として注入され、パラメータ ($\theta$) を通じてアクションスコアへと直接収束（投影）されます。
+### 1. 🌊 Temporal Flow Dynamics (時間的重畳)
+情報は単一の「点」ではなく、減衰する残響を伴う**「流れ（Flow）」**として注入されます。
+- **State Temporal Smearing:** 直前の入力状態を余韻として保持し、現在の入力と干渉させることで「文脈（Trajectory）」を物理的に符号化。
+- **Action Momentum:** 過去の成功体験に基づく「慣性」を行動スコアに付与し、カオス的なノイズ下でも安定した一貫性を維持。
+
+### 2. 🌌 Cosmic General Relativity (重力場と特異点)
+学習した記憶を「パラメータ」ではなく**「時空の歪み（重力場）」**として定義します。
+- **Black Holes (Singularity):** 高い報酬が得られた地点に `gravity_field` を形成。事象の地平線内では情報の「蒸発（忘却）」が極限まで低下し、無入力でもリズムが保存される「公転状態（Orbit）」へと移行。
+- **Wormholes (Entanglement):** 非局所的な地点間に位相の同期パスを形成。前提から結論への「論理の跳躍」を、情報の瞬間移動（量子もつれ）として実現。
+- **Hawking Radiation:** 重力場の緩やかな自然蒸発による動的な忘却制御。
+
+### 3. 🧠 Inverse Reinforcement Learning (動機逆算)
+「失敗から学ぶ」強化学習に加え、「行動から動機を学ぶ」逆強化学習を統合。
+- **Motivation Inference:** エキスパートの行動を観測し、その背後にある「ハミルトニアン場」を逆算して自己の知能構造へ定着。
+- **Imitation Phase Locking:** 報酬信号なしでも、他者の行動からその「意図」を抽出・模倣することが可能。
 
 ---
 
 ## 🧠 Core Philosophy
 
 1. **時定数のスペクトラム化**
-   1つのモデルの中に「ゆっくり変化する波」と「速く変化する波」を共存させ、思考と行動を完全同期。
-2. **自己参照的フィードバック**
-   波の一部を自身へ還流させることで、RNNのような記憶保持を物理的ループで実現。
-3. **極限のメモリ効率**
-   状態数（State Size）に依存せず、常に**固定 512 パラメータ**で完結。
+   1つのモデルの中に「ゆっくり変化する波（重力記憶）」と「速く変化する波（反射）」を共存。
+2. **弾性的失敗記憶**
+   失敗した行動には「反発力」を付与。時間の経過とともに弾性的に回復する「 dissipative failure memory」を実装。
+3. **因果関係の物理化**
+   「Aの次にBが起こる」という論理を、波動の伝播速度とワームホール接続によって物理量として表現。
 
 ---
 
@@ -133,21 +139,17 @@ if (entity.getHealth() < 5.0) {
 
 | Phase | State | Characteristics |
 | :--- | :--- | :--- |
-| 🟦 **Solid** | 結晶化 | 戦術波による精密な指令。無駄なノイズを排除した最適化。 |
+| 🟦 **Solid** | 結晶化 | 戦術波による精密な指令。重力による記憶の固定が最大化。 |
 | 🟩 **Liquid** | 流動体 | 標準的な適応状態。環境の波紋に柔軟に同調。 |
-| 🟥 **Gas** | 混沌 | 高エネルギー状態。既存の干渉パターンを破壊し新たな解を模索。 |
+| 🟥 **Gas** | 混沌 | 高エネルギー状態。既存の重力場を破壊し新たな解を模索。 |
 
 ---
 
 ## 🛠 For Developers
 
-### Build
-- **Local**: `mvn package` (Rust コンパイルと JAR 生成を自動実行)
-- **Engine Only**: `cargo build --release`
-
 ### Project Structure
-- `src/core/mwso.rs`: 波動作用素の核 (The Unified PDE)
-- `src/core/singularity.rs`: 波動空間の統括
+- `src/core/mwso.rs`: 波動作用素・重力場・ワームホールの核
+- `src/core/singularity.rs`: 履歴管理・IRL・時系列学習の統括
 - `dark_singularity_api/`: Java 用 JNI ラッパー
 
 ---
@@ -156,7 +158,7 @@ if (entity.getHealth() < 5.0) {
 
 **本プロジェクトは RuskLabo (Lunar_prototype) の専属的な研究成果です。**
 
-- **Latest Only**: 常に最新のブランチ・バージョンのみをサポート対象とします。下位互換性の維持や過去バージョンの修正は行いません。
+- **Latest Only**: 常に最新のブランチ・バージョンのみをサポート対象とします。
 - **No Support**: 過去のアーティファクトに関する問い合わせには応答しません。
 - **Destructive Updates**: 予告なしに内部構造や JNI シグネチャが変更される場合があります。
 
