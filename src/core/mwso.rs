@@ -8,6 +8,8 @@ pub struct MWSO {
     pub psi_imag: Vec<f32>,
     pub theta: Vec<f32>,
     pub frequencies: Vec<f32>,
+    pub gravity_field: Vec<f32>, 
+    pub entanglements: Vec<(usize, usize, f32)>, 
     pub dim: usize,
 }
 
@@ -18,7 +20,21 @@ impl MWSO {
         let mut frequencies = vec![0.0; dim];
         for i in 0..theta_size { theta[i] = (i as f32 * 0.1).sin() * 0.1; }
         for i in 0..dim { frequencies[i] = (i as f32 / dim as f32).powi(2) * 2.0 * PI; }
-        Self { psi_real: vec![0.01; dim], psi_imag: vec![0.0; dim], theta, frequencies, dim }
+        Self { 
+            psi_real: vec![0.01; dim], 
+            psi_imag: vec![0.0; dim], 
+            theta, 
+            frequencies, 
+            gravity_field: vec![0.0; dim],
+            entanglements: Vec::new(),
+            dim 
+        }
+    }
+
+    pub fn add_wormhole(&mut self, from: usize, to: usize, strength: f32) {
+        if from < self.dim && to < self.dim {
+            self.entanglements.push((from, to, strength));
+        }
     }
 
     pub fn inject_state(&mut self, state_idx: usize, strength: f32, penalty_field: &[f32]) {
@@ -30,9 +46,8 @@ impl MWSO {
         for i in 0..16 { 
             let idx = (state_idx + i * stride) % self.dim;
             
-            // ペナルティ（反発力）がある領域は、注入強度を弱める
             let penalty = penalty_field.get(idx).cloned().unwrap_or(0.0);
-            let resistance = (-penalty * 2.0).exp(); // ペナルティが高いほど抵抗が強まる
+            let resistance = (-penalty * 2.0).exp(); 
             
             let phase_filter = self.theta[idx].cos() + phase_offset;
             let drive = strength * (1.5 + phase_filter.cos()) * resistance;
@@ -64,10 +79,23 @@ impl MWSO {
             self.psi_real[i] = new_re + resonance * effective_dt * (1.0 + focus_factor);
             self.psi_imag[i] = new_im;
             
-            let viscosity = 0.01 * (1.1 - self.theta[i + self.dim].clamp(-1.0, 1.0).abs());
+            // 重力場による「事象の地平線」効果：重力が強いほど忘却（粘性）が消える
+            let gravity = self.gravity_field[i];
+            let base_viscosity = 0.01 * (1.1 - self.theta[i + self.dim].clamp(-1.0, 1.0).abs());
+            let viscosity = base_viscosity * (1.0 - gravity).max(0.001); 
+
             self.psi_real[i] *= 1.0 - viscosity;
             self.psi_imag[i] *= 1.0 - viscosity;
         }
+
+        // ワームホールによる量子もつれ（位相の同期）
+        for &(a, b, strength) in &self.entanglements {
+            let p1_real = self.psi_real[a];
+            let p1_imag = self.psi_imag[a];
+            self.psi_real[b] += p1_real * strength * effective_dt;
+            self.psi_imag[b] += p1_imag * strength * effective_dt;
+        }
+
         let target_norm = 1.0 + (system_temp * 0.5).min(1.5);
         self.normalize(target_norm);
     }
@@ -97,7 +125,6 @@ impl MWSO {
                 total_penalty += penalty_field.get(idx).cloned().unwrap_or(0.0);
             }
 
-            // ペナルティをスコアから減算（ハード・マスキングではなくソフトな反発力）
             score -= total_penalty * 0.5;
             
             score = (score * 1.5).exp().min(1e10);
@@ -118,24 +145,38 @@ impl MWSO {
         let t_len = self.theta.len();
 
         for &action_idx in last_actions {
-            if reward < 0.0 {
-                let base = (action_idx * bin_per_action) % self.dim;
+            let base_idx = action_idx * bin_per_action;
+
+            if reward > 2.0 {
+                // 強力な報酬：重力場を形成（ブラックホール化）
                 for j in 0..bin_per_action {
-                    let idx = (base + j) % self.dim;
+                    let idx = (base_idx + j) % self.dim;
+                    self.gravity_field[idx] = (self.gravity_field[idx] + 0.1).min(1.0);
+                }
+            }
+
+            if reward < 0.0 {
+                for j in 0..bin_per_action {
+                    let idx = (base_idx + j) % self.dim;
                     self.frequencies[idx] = (self.frequencies[idx] + 0.001).clamp(0.0, 2.0 * PI);
+                    self.gravity_field[idx] *= 0.8; // 失敗は重力を弱める
                 }
             }
             for neighborhood in -1..=1 {
                 let weight = if neighborhood == 0 { 1.0 } else { 0.2 };
                 let target_action = (action_idx as i32 + neighborhood).rem_euclid(action_size as i32) as usize;
                 let lr = base_lr * weight;
-                let base_idx = target_action * bin_per_action;
+                let n_base = target_action * bin_per_action;
                 for j in 0..bin_per_action {
-                    let idx = (base_idx + j) % self.dim;
+                    let idx = (n_base + j) % self.dim;
                     let current_phase = self.psi_imag[idx].atan2(self.psi_real[idx]);
                     let target_phase = if reward > 0.0 { 0.0 } else { PI };
                     let phase_diff_sin = (target_phase - current_phase).sin();
-                    self.theta[idx] = (self.theta[idx] + phase_diff_sin * lr).clamp(-PI, PI);
+                    
+                    // 重力が強い場所は、位相が「固定」されやすくなる
+                    let gravity_inertia = 1.0 - self.gravity_field[idx] * 0.5;
+                    self.theta[idx] = (self.theta[idx] + phase_diff_sin * lr * gravity_inertia).clamp(-PI, PI);
+                    
                     if reward > 0.0 {
                         let (sin_p, cos_p) = current_phase.sin_cos();
                         self.psi_real[idx] += 1.5 * reward * cos_p;
@@ -144,6 +185,26 @@ impl MWSO {
                     }
                 }
             }
+        }
+
+        // ホーキング放射（重力場の自然蒸発）
+        for g in &mut self.gravity_field { *g *= 0.999; }
+    }
+
+    /// 行動から動機を逆算するための位相アライメント
+    pub fn align_to_action(&mut self, action_idx: usize, strength: f32, action_size: usize) {
+        let bin_per_action = self.dim / action_size;
+        let base_idx = (action_idx * bin_per_action) % self.dim;
+        let lr = 0.5 * strength;
+
+        for j in 0..bin_per_action {
+            let idx = (base_idx + j) % self.dim;
+            let current_phase = self.psi_imag[idx].atan2(self.psi_real[idx]);
+            let target_phase = 0.0;
+            let phase_diff_sin = (target_phase - current_phase).sin();
+            self.theta[idx] = (self.theta[idx] + phase_diff_sin * lr).clamp(-PI, PI);
+            self.psi_real[idx] += 0.2 * strength;
+            self.gravity_field[idx] = (self.gravity_field[idx] + 0.01 * strength).min(0.5);
         }
     }
 

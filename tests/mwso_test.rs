@@ -16,7 +16,7 @@ fn test_mwso_influence() {
     
     // 適応後のスコアが変化しているか確認
     // (MWSOは確率的・波動的なので、完全に固定ではないが、傾向は出るはず)
-    let score_after = sing.mwso.get_action_scores(0, 5);
+    let score_after = sing.mwso.get_action_scores(0, 5, 0.0, &[]);
     println!("MWSO Scores after adaptation: {:?}", score_after);
 }
 
