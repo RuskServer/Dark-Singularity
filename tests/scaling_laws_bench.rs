@@ -38,7 +38,7 @@ fn benchmark_memory_capacity_scaling() {
     println!("\n=== Benchmark 1: Dimension (D) vs Superposition Capacity (N) ===");
     println!("Criterion: Interference SNR >= 5.0 (Crosstalk Limit)");
 
-    let dimensions = vec![1024, 2048, 4096, 8192, 16384];
+    let dimensions = vec![1024, 2048, 3072,4096, 8192, 16384];
     println!("{:<10} | {:<10} | {:<10} | {:<10}", "Dim (D)", "Max N", "N/D Ratio", "Scaling Log");
     println!("{}", "-".repeat(60));
 
