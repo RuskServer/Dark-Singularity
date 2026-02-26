@@ -192,7 +192,7 @@ fn benchmark_thermal_scaling_laws() {
             let max_epochs = 1000;
 
             for epoch in 1..=max_epochs {
-                let state_idx = epoch % 10;
+                let state_idx = epoch % state_size;
                 let target_action = (state_idx * 7) % action_size;
                 ai.system_temperature = temp;
                 
