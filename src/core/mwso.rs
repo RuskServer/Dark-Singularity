@@ -286,9 +286,10 @@ impl MWSO {
             let energy_sq = self.psi_real[i].powi(2) + self.psi_imag[i].powi(2);
             if energy_sq > 0.001 {
                 let phase = self.psi_imag[i].atan2(self.psi_real[i]);
-                rd += energy_sq * (phase.cos() + 1.0) / 2.0;
+                let gravity_boost = 1.0 + self.gravity_field[i] * 10.0;
+                rd += energy_sq * (phase.cos() + 1.0) / 2.0 * gravity_boost;
             }
         }
-        rd * 100.0 / self.dim as f32  // dimで1回だけ割る
+        rd * 100.0 / self.dim as f32
     }
 }
