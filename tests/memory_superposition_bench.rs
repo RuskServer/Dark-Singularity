@@ -41,13 +41,13 @@ fn benchmark_superposition_capacity() {
 
         // Calculate resonance amplitude (how well it matches memory)
         // We simulate the resonance logic from step_core
-        let mut overlap_re = 0.0;
-        let mut overlap_im = 0.0;
+        let mut overlap_re = 0.0_f64;
+        let mut overlap_im = 0.0_f64;
         for j in 0..dim {
-            overlap_re += ai.mwso.psi_real[j] * ai.mwso.memory_psi_real[j] + ai.mwso.psi_imag[j] * ai.mwso.memory_psi_imag[j];
-            overlap_im += ai.mwso.psi_real[j] * ai.mwso.memory_psi_imag[j] - ai.mwso.psi_imag[j] * ai.mwso.memory_psi_real[j];
+            overlap_re += ai.mwso.psi_real[j] as f64 * ai.mwso.memory_psi_real[j] + ai.mwso.psi_imag[j] as f64 * ai.mwso.memory_psi_imag[j];
+            overlap_im += ai.mwso.psi_real[j] as f64 * ai.mwso.memory_psi_imag[j] - ai.mwso.psi_imag[j] as f64 * ai.mwso.memory_psi_real[j];
         }
-        let resonance = (overlap_re.powi(2) + overlap_im.powi(2)).sqrt();
+        let resonance = (overlap_re.powi(2) + overlap_im.powi(2)).sqrt() as f32;
         println!("Pattern {:02} Resonance: {:.4}", i, resonance);
         total_resonance += resonance;
     }

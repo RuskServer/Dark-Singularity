@@ -6,13 +6,13 @@ fn calculate_interference_snr_optimized(mwso: &MWSO, patterns: &Vec<(Vec<f32>, V
     let dim = mwso.dim;
     let (target_re, target_im) = &patterns[target_idx];
     
-    let mut s_re = 0.0;
-    let mut s_im = 0.0;
+    let mut s_re = 0.0_f64;
+    let mut s_im = 0.0_f64;
     for j in 0..dim {
-        s_re += target_re[j] * mwso.memory_psi_real[j] + target_im[j] * mwso.memory_psi_imag[j];
-        s_im += target_re[j] * mwso.memory_psi_imag[j] - target_im[j] * mwso.memory_psi_real[j];
+        s_re += target_re[j] as f64 * mwso.memory_psi_real[j] + target_im[j] as f64 * mwso.memory_psi_imag[j];
+        s_im += target_re[j] as f64 * mwso.memory_psi_imag[j] - target_im[j] as f64 * mwso.memory_psi_real[j];
     }
-    let signal_sq = s_re.powi(2) + s_im.powi(2);
+    let signal_sq = (s_re.powi(2) + s_im.powi(2)) as f32;
     
     // Noise: 全エネルギーからターゲット信号成分を除いたもの
     let noise_floor_sq = (total_energy_sq - signal_sq).max(0.0) / (patterns.len() as f32);
@@ -57,10 +57,11 @@ fn benchmark_memory_capacity_scaling() {
             patterns.push((re, im));
 
             // 最適化: 全エネルギーを1回だけ計算
-            let mut total_energy_sq = 0.0;
+            let mut total_energy_sq = 0.0_f64;
             for j in 0..dim {
                 total_energy_sq += mwso.memory_psi_real[j].powi(2) + mwso.memory_psi_imag[j].powi(2);
             }
+            let total_energy_sq = total_energy_sq as f32;
 
             // チェックの高速化: 直近のパターンと過去の代表1点をサンプリング
             let snr_latest = calculate_interference_snr_optimized(&mwso, &patterns, next_n - 1, total_energy_sq);
@@ -113,7 +114,7 @@ fn benchmark_rhyd_crystallization() {
             let sum_score: f32 = scores.iter().sum();
             let confidence = if sum_score > 0.0 { max_score / sum_score } else { 0.0 };
             println!("{:<10} | {:<10.2} | {:<10.2} | {:<15.4} | {:<10}", 
-                     epoch, ai.system_temperature, rhyd, confidence, if confidence > 0.95 { "CRYSTAL" } else { "FLUID" });
+                     epoch, ai.system_temperature, rhyd, confidence, if confidence > 0.90 { "CRYSTAL" } else { "FLUID" });
         }
     }
 }
@@ -148,5 +149,109 @@ fn benchmark_thermal_phase_transition() {
         }
         let result = if converged_at > 0 { format!("{}", converged_at) } else { "FAILED".to_string() };
         println!("{:<10.1} | {:<15} | {:<10}", temp, result, if converged_at > 0 { "100%" } else { "0%" });
+    }
+}
+
+#[test]
+fn benchmark_thermal_scaling_laws() {
+    println!("\n=== Benchmark 4: Thermal Phase Transition & Scaling Laws ===");
+    println!("Goal: Identify Tc and check scaling laws: Tc ~ D^alpha, tau ~ |T-Tc|^-nu");
+
+    let dims = vec![1024, 2048, 4096];
+    let num_t_points = 30;
+    let t_max: f32 = 2.0;
+    let t_min: f32 = 0.01;
+
+    let mut scaling_data = Vec::new();
+
+    for &dim in &dims {
+        println!("\n--- Dimension D = {} ---", dim);
+        println!("{:<10} | {:<10} | {:<10} | {:<10}", "Temp (T)", "Rhyd", "Conv Time", "Status");
+        println!("{}", "-".repeat(50));
+
+        // Singularity内部の次元計算: (action_size * 64).next_power_of_two()
+        let action_size = match dim {
+            1024 => 16,
+            2048 => 32,
+            4096 => 64,
+            _ => 16,
+        };
+
+        let mut tc_guess = 0.0;
+        let mut max_rhyd = 0.0;
+        let mut dim_results = Vec::new();
+
+        for i in 0..num_t_points {
+            // ログスケールで温度を生成
+            let temp = t_max * (t_min / t_max).powf(i as f32 / (num_t_points - 1) as f32);
+            
+            let mut ai = Singularity::new(100, vec![action_size]);
+            let mut converged_at = None;
+            let mut success_streak = 0;
+            let max_epochs = 1000;
+
+            for epoch in 1..=max_epochs {
+                let state_idx = epoch % 10;
+                let target_action = (state_idx * 7) % action_size;
+                ai.system_temperature = temp;
+                
+                let actions = ai.select_actions(state_idx);
+                if actions[0] as usize == target_action {
+                    ai.learn(2.0);
+                    success_streak += 1;
+                } else {
+                    ai.learn(-1.5);
+                    success_streak = 0;
+                }
+                
+                // 30ステップ連続成功を収束とみなす
+                if success_streak >= 30 {
+                    converged_at = Some(epoch);
+                    break;
+                }
+            }
+
+            let rhyd = ai.get_resonance_density();
+            if rhyd > max_rhyd { max_rhyd = rhyd; }
+            
+            // Tc を「安定して結晶化（Rhyd > 0.4）かつ収束に成功した最高温度」と定義
+            if converged_at.is_some() && rhyd > 0.4 {
+                if temp > tc_guess { tc_guess = temp; }
+            }
+
+            let conv_str = converged_at.map(|e| e.to_string()).unwrap_or("∞".to_string());
+            if i % 3 == 0 || converged_at.is_some() {
+                println!("{:<10.3} | {:<10.3} | {:<10} | {}", 
+                         temp, rhyd, conv_str, if temp > 0.9 { "CRYSTAL" } else { "FLUID" });
+            }
+            
+            dim_results.push((temp, rhyd, converged_at));
+        }
+        
+        scaling_data.push((dim, tc_guess, max_rhyd, dim_results));
+        println!(">> Summary D={}: Tc ~ {:.3}, Max Rhyd = {:.3}", dim, tc_guess, max_rhyd);
+    }
+
+    println!("\n=== Scaling Analysis ===");
+    if scaling_data.len() >= 2 {
+        let (d1, tc1, _, _) = scaling_data[0];
+        let (d_last, tc_last, _, _) = scaling_data[scaling_data.len()-1];
+        if tc1 > 0.0 && tc_last > 0.0 {
+            let alpha = (tc_last / tc1).ln() / (d_last as f32 / d1 as f32).ln();
+            println!("Estimated alpha (Tc ~ D^alpha): {:.4}", alpha);
+        }
+    }
+    
+    println!("\n[Critical Divergence Check: tau ~ |T - Tc|^-nu]");
+    for (dim, tc, _, results) in &scaling_data {
+        if *tc <= 0.0 { continue; }
+        println!("D = {}: Analyzing divergence above Tc={:.3}", dim, tc);
+        for (t, _, conv) in results {
+            if *t > *tc && (*t - *tc) < 0.5 {
+                let dist = *t - *tc;
+                let tau = conv.unwrap_or(1000) as f32;
+                println!("  dist={:.3} (T={:.3}) -> tau={}", dist, t, tau);
+            }
+        }
     }
 }

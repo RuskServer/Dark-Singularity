@@ -13,8 +13,8 @@ pub struct MWSO {
     
     // --- Global Memory Wave (Quantum Superposition) ---
     // A single wave that stores multiple experiences through interference patterns.
-    pub memory_psi_real: Vec<f32>,
-    pub memory_psi_imag: Vec<f32>,
+    pub memory_psi_real: Vec<f64>,
+    pub memory_psi_imag: Vec<f64>,
     
     pub dim: usize,
 }
@@ -49,19 +49,19 @@ impl MWSO {
     pub fn imprint_memory(&mut self, psi_real: &[f32], psi_imag: &[f32], strength: f32) {
         if psi_real.len() != self.dim || psi_imag.len() != self.dim { return; }
         for i in 0..self.dim {
-            self.memory_psi_real[i] += psi_real[i] * strength;
-            self.memory_psi_imag[i] += psi_imag[i] * strength;
+            self.memory_psi_real[i] += psi_real[i] as f64 * strength as f64;
+            self.memory_psi_imag[i] += psi_imag[i] as f64 * strength as f64;
         }
         // 次元数に比例した正規化
-        let target = self.dim as f32 * 0.01;
+        let target = self.dim as f64 * 0.01;
         self.normalize_memory(target);
     }
 
-    fn normalize_memory(&mut self, target_norm: f32) {
+    fn normalize_memory(&mut self, target_norm: f64) {
         let mut total_energy_sq = 0.0;
         for i in 0..self.dim { total_energy_sq += self.memory_psi_real[i].powi(2) + self.memory_psi_imag[i].powi(2); }
         let norm = total_energy_sq.sqrt();
-        if norm > 1e-6 {
+        if norm > 1e-12 {
             let factor = target_norm / norm;
             for i in 0..self.dim { self.memory_psi_real[i] *= factor; self.memory_psi_imag[i] *= factor; }
         }
@@ -91,13 +91,13 @@ impl MWSO {
         let effective_dt = dt * (1.0 + speed_boost);
 
         // Calculate overlap (resonance) with the memory wave
-        let mut overlap_re = 0.0;
-        let mut overlap_im = 0.0;
+        let mut overlap_re = 0.0_f64;
+        let mut overlap_im = 0.0_f64;
         for i in 0..self.dim {
-            overlap_re += self.psi_real[i] * self.memory_psi_real[i] + self.psi_imag[i] * self.memory_psi_imag[i];
-            overlap_im += self.psi_real[i] * self.memory_psi_imag[i] - self.psi_imag[i] * self.memory_psi_real[i];
+            overlap_re += self.psi_real[i] as f64 * self.memory_psi_real[i] + self.psi_imag[i] as f64 * self.memory_psi_imag[i];
+            overlap_im += self.psi_real[i] as f64 * self.memory_psi_imag[i] - self.psi_imag[i] as f64 * self.memory_psi_real[i];
         }
-        let resonance_amplitude = (overlap_re.powi(2) + overlap_im.powi(2)).sqrt().min(1.0);
+        let resonance_amplitude = (overlap_re.powi(2) + overlap_im.powi(2)).sqrt().min(1.0) as f32;
 
         for i in 0..self.dim {
             self.theta[i] *= solidification;
@@ -119,8 +119,8 @@ impl MWSO {
             // --- Memory Interaction ---
             // If the current state resonates with the memory wave, it flows into the active state.
             // This is "Quantum Mechanical Reminiscence".
-            let memory_flow_re = self.memory_psi_real[i] * resonance_amplitude * 0.5;
-            let memory_flow_im = self.memory_psi_imag[i] * resonance_amplitude * 0.5;
+            let memory_flow_re = (self.memory_psi_real[i] * resonance_amplitude as f64 * 0.5) as f32;
+            let memory_flow_im = (self.memory_psi_imag[i] * resonance_amplitude as f64 * 0.5) as f32;
 
             self.psi_real[i] = new_re + (coupling_resonance + memory_flow_re) * effective_dt * (1.0 + focus_factor);
             self.psi_imag[i] = new_im + memory_flow_im * effective_dt * (1.0 + focus_factor);
