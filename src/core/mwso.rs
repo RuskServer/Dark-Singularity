@@ -53,7 +53,7 @@ impl MWSO {
             self.memory_psi_imag[i] += psi_imag[i] * strength;
         }
         // 次元数に比例した正規化
-        let target = (self.dim as f32).sqrt();
+        let target = self.dim as f32 * 0.01;
         self.normalize_memory(target);
     }
 
