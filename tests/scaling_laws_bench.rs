@@ -71,7 +71,7 @@ fn benchmark_memory_capacity_scaling() {
             }
             n = next_n;
             // 次元に応じた現実的な上限を設定（停滞防止）
-            if n >= dim * 32 { break; } // かなり大きくする
+            if n >= dim * 64 { break; } // かなり大きくする
             
             // 進捗が分かりにくいので、たまに出力
             if n % 500 == 0 {
