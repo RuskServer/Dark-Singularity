@@ -185,7 +185,8 @@ fn benchmark_thermal_scaling_laws() {
             // ログスケールで温度を生成
             let temp = t_max * (t_min / t_max).powf(i as f32 / (num_t_points - 1) as f32);
             
-            let mut ai = Singularity::new(100, vec![action_size]);
+            let state_size = dim / 10;
+            let mut ai = Singularity::new(state_size, vec![action_size]);
             let mut converged_at = None;
             let mut success_streak = 0;
             let max_epochs = 1000;
@@ -213,7 +214,7 @@ fn benchmark_thermal_scaling_laws() {
                 }
             }
 
-            let rhyd = ai.get_resonance_density();
+            let rhyd = ai.get_resonance_density() / (dim as f32 / 1024.0);
             if rhyd > max_rhyd { max_rhyd = rhyd; }
             
             // Tc を「安定して結晶化（Rhyd > 0.4）かつ収束に成功した最高温度」と定義
