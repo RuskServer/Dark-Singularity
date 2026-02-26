@@ -197,7 +197,7 @@ fn benchmark_thermal_scaling_laws() {
                 
                 let actions = ai.select_actions(state_idx);
                 if actions[0] as usize == target_action {
-                    ai.learn(2.0);
+                    ai.learn(2.1);
                     ai.system_temperature = temp;
                     success_streak += 1;
                 } else {
