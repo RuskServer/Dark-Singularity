@@ -221,15 +221,14 @@ fn benchmark_thermal_scaling_laws() {
                 if temp > tc_guess { tc_guess = temp; }
             }
 
+            let scores = ai.mwso.get_action_scores(0, action_size, 0.0, &vec![0.0; ai.mwso.dim]);
+            let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let sum_score: f32 = scores.iter().sum();
+            let confidence = if sum_score > 0.0 { max_score / sum_score } else { 0.0 };
+
             let conv_str = converged_at.map(|e| e.to_string()).unwrap_or("∞".to_string());
-            if i % 3 == 0 || converged_at.is_some() {
-                let scores = ai.mwso.get_action_scores(0, action_size, 0.0, &vec![0.0; ai.mwso.dim]);
-                let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let sum_score: f32 = scores.iter().sum();
-                let confidence = if sum_score > 0.0 { max_score / sum_score } else { 0.0 };
-                println!("{:<10.3} | {:<10.3} | {:<10} | {}", 
+            println!("{:<10.3} | {:<10.3} | {:<10} | {}", 
                          temp, rhyd, conv_str, if confidence > 0.90 { "CRYSTAL" } else { "FLUID" });
-            }
             
             dim_results.push((temp, rhyd, converged_at));
         }
