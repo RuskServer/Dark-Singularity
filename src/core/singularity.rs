@@ -94,7 +94,24 @@ impl Singularity {
         let focus_factor = (self.nodes[self.idx_tactical].state * 0.5).clamp(0.0, 1.0);
 
         let start = state_idx * self.mwso.dim;
-        let current_penalty_field = self.penalty_matrix[start..start + self.mwso.dim].to_vec();
+        let mut current_penalty_field = self.penalty_matrix[start..start + self.mwso.dim].to_vec();
+
+        // --- Knowledge-based Penalty Injection ---
+        let bin_per_action = self.mwso.dim / self.action_size;
+        let active_resonance = self.bootstrapper.calculate_resonance_field(&self.active_conditions, self.action_size);
+        for (action_idx, strength_opt) in active_resonance.iter().enumerate() {
+            if let Some(strength) = strength_opt {
+                if *strength < 0.0 {
+                    let p_val = strength.abs() * 50.0; // ペナルティ強度を増幅して注入
+                    let b_start = action_idx * bin_per_action;
+                    for j in 0..bin_per_action {
+                        if b_start + j < current_penalty_field.len() {
+                            current_penalty_field[b_start + j] += p_val;
+                        }
+                    }
+                }
+            }
+        }
 
         // --- Flow Injection (Temporal Smearing) ---
         // 現在の状態を 1.0 で注入
@@ -156,14 +173,20 @@ impl Singularity {
         let active_resonance = self.bootstrapper.calculate_resonance_field(&self.active_conditions, self.action_size);
 
         for i in 0..size {
+            let mut knowledge_field = 0.0;
+            if let Some(s) = active_resonance[offset + i] {
+                if s < -0.9 { // 強力なペナルティ（無限大に近い排斥）
+                    knowledge_field = -1e6; 
+                } else {
+                    knowledge_field = s * 30.0;
+                }
+            }
+            
             let base_score = mwso_scores[i] - self.fatigue_map[offset + i] * 0.5;
             let internal_field = self.learned_rules.iter()
                 .find(|r| r.0 == self.last_state_idx && r.1 == offset + i)
                 .map(|r| (r.2 as f32 * 2.0).min(5.0)).unwrap_or(0.0);
 
-            // アクティブな条件による理性スコア、または特定の状態に紐付いた潜在的動機
-            let mut knowledge_field = active_resonance[offset + i].map(|s| s * 30.0).unwrap_or(0.0);
-            
             // 現在の入力状態に合致するルールがあれば、それを「動機」として加算
             if let Some(rule) = self.bootstrapper.rules.iter().find(|r| r.condition_id == self.last_state_idx as i32 && r.target_action == offset + i) {
                 knowledge_field += rule.strength * 20.0;

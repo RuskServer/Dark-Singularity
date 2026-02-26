@@ -54,6 +54,13 @@ fn benchmark_tic_tac_toe_evolution() {
     let mut ai_x = Singularity::new(19683, vec![9]);
     let mut ai_o = Singularity::new(19683, vec![9]);
 
+    // ルール（世界の理）の登録: すでに埋まっているマスに打つのは「無限大の排斥場」
+    // 条件 i (0-8) は「マス i が埋まっている」ことを示す
+    for i in 0..9 {
+        ai_x.bootstrapper.add_penalty_rule(i as i32, i, 1.0);
+        ai_o.bootstrapper.add_penalty_rule(i as i32, i, 1.0);
+    }
+
     println!("
 --- DS-Bench: Tic-Tac-Toe Co-Evolution ---");
     println!("Two AIs playing against each other for 500 matches.");
@@ -76,6 +83,15 @@ fn benchmark_tic_tac_toe_evolution() {
             let current_ai = if turn == Cell::X { &mut ai_x } else { &mut ai_o };
             let state_idx = board.get_state_index(turn);
             
+            // 現在の盤面から「埋まっているマス」を条件として抽出
+            let mut occupied_cells = Vec::new();
+            for i in 0..9 {
+                if board.cells[i] != Cell::Empty {
+                    occupied_cells.push(i as i32);
+                }
+            }
+            current_ai.set_active_conditions(&occupied_cells);
+
             let actions = current_ai.select_actions(state_idx);
             let move_idx = actions[0] as usize;
 

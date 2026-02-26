@@ -8,6 +8,7 @@ pub struct HamiltonianRule {
     /// 誘導したいアクションのインデックス
     pub target_action: usize,
     /// 知識の強制力 (resonance_strength)
+    /// 正の値は誘引（アトラクタ）、負の値は排斥（ペナルティ場）として機能する
     pub strength: f32,
 }
 
@@ -25,6 +26,14 @@ impl Bootstrapper {
             condition_id,
             target_action,
             strength,
+        });
+    }
+
+    pub fn add_penalty_rule(&mut self, condition_id: i32, target_action: usize, strength: f32) {
+        self.rules.push(HamiltonianRule {
+            condition_id,
+            target_action,
+            strength: -strength.abs(),
         });
     }
 
