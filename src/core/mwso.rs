@@ -10,6 +10,12 @@ pub struct MWSO {
     pub frequencies: Vec<f32>,
     pub gravity_field: Vec<f32>, 
     pub entanglements: Vec<(usize, usize, f32)>, 
+    
+    // --- Global Memory Wave (Quantum Superposition) ---
+    // A single wave that stores multiple experiences through interference patterns.
+    pub memory_psi_real: Vec<f32>,
+    pub memory_psi_imag: Vec<f32>,
+    
     pub dim: usize,
 }
 
@@ -27,6 +33,8 @@ impl MWSO {
             frequencies, 
             gravity_field: vec![0.0; dim],
             entanglements: Vec::new(),
+            memory_psi_real: vec![0.0; dim],
+            memory_psi_imag: vec![0.0; dim],
             dim 
         }
     }
@@ -34,6 +42,27 @@ impl MWSO {
     pub fn add_wormhole(&mut self, from: usize, to: usize, strength: f32) {
         if from < self.dim && to < self.dim {
             self.entanglements.push((from, to, strength));
+        }
+    }
+
+    /// Imprints a state into the global memory wave via superposition.
+    pub fn imprint_memory(&mut self, psi_real: &[f32], psi_imag: &[f32], strength: f32) {
+        if psi_real.len() != self.dim || psi_imag.len() != self.dim { return; }
+        for i in 0..self.dim {
+            self.memory_psi_real[i] += psi_real[i] * strength;
+            self.memory_psi_imag[i] += psi_imag[i] * strength;
+        }
+        // Normalize memory wave to prevent explosion
+        self.normalize_memory(1.0);
+    }
+
+    fn normalize_memory(&mut self, target_norm: f32) {
+        let mut total_energy_sq = 0.0;
+        for i in 0..self.dim { total_energy_sq += self.memory_psi_real[i].powi(2) + self.memory_psi_imag[i].powi(2); }
+        let norm = total_energy_sq.sqrt();
+        if norm > 1e-6 {
+            let factor = target_norm / norm;
+            for i in 0..self.dim { self.memory_psi_real[i] *= factor; self.memory_psi_imag[i] *= factor; }
         }
     }
 
@@ -60,6 +89,15 @@ impl MWSO {
         let solidification = 0.9999 - (0.0005 * (1.0 - focus_factor));
         let effective_dt = dt * (1.0 + speed_boost);
 
+        // Calculate overlap (resonance) with the memory wave
+        let mut overlap_re = 0.0;
+        let mut overlap_im = 0.0;
+        for i in 0..self.dim {
+            overlap_re += self.psi_real[i] * self.memory_psi_real[i] + self.psi_imag[i] * self.memory_psi_imag[i];
+            overlap_im += self.psi_real[i] * self.memory_psi_imag[i] - self.psi_imag[i] * self.memory_psi_real[i];
+        }
+        let resonance_amplitude = (overlap_re.powi(2) + overlap_im.powi(2)).sqrt().min(1.0);
+
         for i in 0..self.dim {
             self.theta[i] *= solidification;
             self.theta[i + self.dim] *= solidification;
@@ -75,9 +113,16 @@ impl MWSO {
             let next_idx = (i + 1) % self.dim;
             let prev_idx = if i == 0 { self.dim - 1 } else { i - 1 };
             
-            let resonance = coupling_strength * (self.psi_real[next_idx] + self.psi_real[prev_idx]);
-            self.psi_real[i] = new_re + resonance * effective_dt * (1.0 + focus_factor);
-            self.psi_imag[i] = new_im;
+            let coupling_resonance = coupling_strength * (self.psi_real[next_idx] + self.psi_real[prev_idx]);
+            
+            // --- Memory Interaction ---
+            // If the current state resonates with the memory wave, it flows into the active state.
+            // This is "Quantum Mechanical Reminiscence".
+            let memory_flow_re = self.memory_psi_real[i] * resonance_amplitude * 0.5;
+            let memory_flow_im = self.memory_psi_imag[i] * resonance_amplitude * 0.5;
+
+            self.psi_real[i] = new_re + (coupling_resonance + memory_flow_re) * effective_dt * (1.0 + focus_factor);
+            self.psi_imag[i] = new_im + memory_flow_im * effective_dt * (1.0 + focus_factor);
             
             // 重力場による「事象の地平線」効果：重力が強いほど忘却（粘性）が消える
             let gravity = self.gravity_field[i];
@@ -153,6 +198,12 @@ impl MWSO {
                     let idx = (base_idx + j) % self.dim;
                     self.gravity_field[idx] = (self.gravity_field[idx] + 0.1).min(1.0);
                 }
+                
+                // --- Imprint Memory on Success ---
+                // If a great result is achieved, imprint the current state into the global memory wave.
+                let psi_re = self.psi_real.clone();
+                let psi_im = self.psi_imag.clone();
+                self.imprint_memory(&psi_re, &psi_im, reward * 0.2);
             }
 
             if reward < 0.0 {
@@ -214,6 +265,14 @@ impl MWSO {
         for i in 0..self.dim {
             let noise = ((seed % (i as u128 + 1)) as f32 / (i as f32 + 1.0)).sin();
             self.psi_real[i] += noise * strength;
+        }
+    }
+
+    pub fn inject_external_state(&mut self, psi_real: &[f32], psi_imag: &[f32], strength: f32) {
+        if psi_real.len() != self.dim || psi_imag.len() != self.dim { return; }
+        for i in 0..self.dim {
+            self.psi_real[i] += psi_real[i] * strength;
+            self.psi_imag[i] += psi_imag[i] * strength;
         }
     }
 
