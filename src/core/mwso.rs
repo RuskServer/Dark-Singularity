@@ -282,15 +282,13 @@ impl MWSO {
 
     pub fn calculate_rhyd(&self) -> f32 {
         let mut rd = 0.0;
-        let mut active_components = 0.0;
         for i in 0..self.dim {
             let energy_sq = self.psi_real[i].powi(2) + self.psi_imag[i].powi(2);
             if energy_sq > 0.001 {
                 let phase = self.psi_imag[i].atan2(self.psi_real[i]);
                 rd += energy_sq * (phase.cos() + 1.0) / 2.0;
-                active_components += 1.0;
             }
         }
-        rd * (active_components / self.dim as f32) * 100.0
+        rd * 100.0 / self.dim as f32  // dimで1回だけ割る
     }
 }
