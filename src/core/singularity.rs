@@ -135,7 +135,7 @@ impl Singularity {
             self.mwso.inject_exploration_noise(noise_strength);
         }
         
-        self.mwso.step_core(0.1, speed_boost, focus_factor, self.system_temperature);
+        self.mwso.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
 
         let mut results = Vec::with_capacity(self.category_sizes.len());
         let mut current_offset = 0;
@@ -283,7 +283,7 @@ impl Singularity {
         let urgency = ((reward + penalty) * 5.0).min(1.0);
         self.mwso.inject_state(0, reward, &vec![0.0; self.mwso.dim]);
         self.mwso.inject_state(1, -penalty, &vec![0.0; self.mwso.dim]);
-        self.mwso.step_core(0.05, 0.0, 0.0, self.system_temperature);
+        self.mwso.step_core(0.05, 0.0, 0.0, self.system_temperature, &vec![0.0; self.mwso.dim]);
 
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
         for node in &mut self.nodes { node.update(0.0, urgency, self.system_temperature, &current_states); }
@@ -333,7 +333,7 @@ impl Singularity {
     }
 
     pub fn update_all_nodes(&mut self, input_signals: &[f32], urgency: f32) {
-        self.mwso.step_core(0.1, 0.0, 0.0, self.system_temperature);
+        self.mwso.step_core(0.1, 0.0, 0.0, self.system_temperature, &vec![0.0; self.mwso.dim]);
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
         for (i, node) in self.nodes.iter_mut().enumerate() {
             let input = input_signals.get(i).cloned().unwrap_or(0.0);
