@@ -291,6 +291,6 @@ impl MWSO {
                 active_components += 1.0;
             }
         }
-        rd * 100.0 / self.dim as f32
+        rd * (active_components / self.dim as f32) * 100.0
     }
 }

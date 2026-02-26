@@ -213,7 +213,7 @@ fn benchmark_thermal_scaling_laws() {
                 }
             }
 
-            let rhyd = ai.get_resonance_density() / (dim as f32 / 1024.0);
+            let rhyd = ai.get_resonance_density() * (dim as f32 / 1024.0);
             if rhyd > max_rhyd { max_rhyd = rhyd; }
             
             // Tc を「安定して結晶化（Rhyd > 0.4）かつ収束に成功した最高温度」と定義
