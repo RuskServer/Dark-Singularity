@@ -54,7 +54,7 @@ impl MWSO {
         }
         // 次元数に比例した正規化
         let target = self.dim as f64 * 0.01;
-        self.normalize_memory(target);
+        self.normalize_memory(1.0);
     }
 
     fn normalize_memory(&mut self, target_norm: f64) {
