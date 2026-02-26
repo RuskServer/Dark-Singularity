@@ -226,6 +226,10 @@ fn benchmark_thermal_scaling_laws() {
             let sum_score: f32 = scores.iter().sum();
             let confidence = if sum_score > 0.0 { max_score / sum_score } else { 0.0 };
 
+            let avg_gravity: f32 = ai.mwso.gravity_field.iter().sum::<f32>() / ai.mwso.dim as f32;
+            let max_gravity: f32 = ai.mwso.gravity_field.iter().cloned().fold(0./0., f32::max);
+            println!("gravity avg={:.4} max={:.4}", avg_gravity, max_gravity);
+
             let conv_str = converged_at.map(|e| e.to_string()).unwrap_or("∞".to_string());
             println!("{:<10.3} | {:<10.3} | {:<10} | {}", 
                          temp, rhyd, conv_str, if confidence > 0.90 { "CRYSTAL" } else { "FLUID" });
