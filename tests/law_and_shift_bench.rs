@@ -30,7 +30,7 @@ fn benchmark_structured_law_sync() {
         ai.learn(reward);
 
         if (i + 1) % window_size == 0 {
-            let acc = (window_correct as f32 / window_size as f32) * 100.0;
+            let acc = (window_correct as f64 / window_size as f64) * 100.0;
             println!("Steps {:03}-{:03} | Accuracy: {:>5.1}% | Temp: {:.2}", 
                 i - (window_size - 1) + 1, i + 1, acc, ai.system_temperature);
             window_correct = 0;
@@ -58,7 +58,7 @@ fn benchmark_rapid_15step_shift() {
     for i in 0..total_steps {
         // 15ステップごとに法則（オフセット）を変更
         if i > 0 && i % shift_interval == 0 {
-            let prev_acc = (current_cycle_correct as f32 / shift_interval as f32) * 100.0;
+            let prev_acc = (current_cycle_correct as f64 / shift_interval as f64) * 100.0;
             println!("Cycle {:02} | Result: {:>5.1}% | Offset: {} -> {}", 
                 i / shift_interval, prev_acc, law_offset, (law_offset + 2) % action_size);
             
@@ -83,7 +83,7 @@ fn benchmark_rapid_15step_shift() {
         ai.learn(reward);
     }
 
-    let final_acc = (total_correct as f32 / total_steps as f32) * 100.0;
+    let final_acc = (total_correct as f64 / total_steps as f64) * 100.0;
     println!("\nFinal Rapid-Shift Adaptability: {:.2}%", final_acc);
 
     // 15ステップという極短期間での平均正解率がランダム(12.5%)を上回ることを確認

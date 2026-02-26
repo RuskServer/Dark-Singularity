@@ -17,27 +17,27 @@ pub struct Singularity {
     pub mwso: MWSO,
     pub bootstrapper: crate::core::knowledge::Bootstrapper,
     pub active_conditions: Vec<i32>, 
-    pub system_temperature: f32,
-    pub last_topology_update_temp: f32,
-    pub adrenaline: f32,
-    pub frustration: f32,
-    pub velocity_trust: f32,
-    pub fatigue_map: Vec<f32>,
-    pub morale: f32,
-    pub patience: f32,
+    pub system_temperature: f64,
+    pub last_topology_update_temp: f64,
+    pub adrenaline: f64,
+    pub frustration: f64,
+    pub velocity_trust: f64,
+    pub fatigue_map: Vec<f64>,
+    pub morale: f64,
+    pub patience: f64,
     pub category_sizes: Vec<usize>, 
     pub action_size: usize,    
     pub state_size: usize,
     pub last_actions: Vec<usize>, 
     pub last_state_idx: usize,
-    pub action_momentum: Vec<f32>, 
+    pub action_momentum: Vec<f64>, 
     pub input_history: VecDeque<usize>, // 入力状態の履歴（流れ）
     pub history: VecDeque<Experience>,
     pub max_history: usize,
     pub learned_rules: Vec<(usize, usize, usize)>, 
-    pub penalty_matrix: Vec<f32>, 
+    pub penalty_matrix: Vec<f64>, 
 
-    pub exploration_beta: f32,    
+    pub exploration_beta: f64,    
 
     pub idx_aggression: usize,
     pub idx_fear: usize,
@@ -163,12 +163,12 @@ impl Singularity {
         super::visualizer::Visualizer::render_wave_snapshot(&self.mwso, path).is_ok()
     }
 
-    fn get_best_in_range(&mut self, offset: usize, size: usize, penalty_field: &[f32]) -> usize {
+    fn get_best_in_range(&mut self, offset: usize, size: usize, penalty_field: &[f64]) -> usize {
         let noise = if self.active_conditions.is_empty() { 0.2 } else { 0.0 };
         let mwso_scores = self.mwso.get_action_scores(offset, size, noise, penalty_field);
         
         let mut best = 0;
-        let mut max_score = -f32::INFINITY;
+        let mut max_score = -f64::INFINITY;
 
         let active_resonance = self.bootstrapper.calculate_resonance_field(&self.active_conditions, self.action_size);
 
@@ -185,7 +185,7 @@ impl Singularity {
             let base_score = mwso_scores[i] - self.fatigue_map[offset + i] * 0.5;
             let internal_field = self.learned_rules.iter()
                 .find(|r| r.0 == self.last_state_idx && r.1 == offset + i)
-                .map(|r| (r.2 as f32 * 2.0).min(5.0)).unwrap_or(0.0);
+                .map(|r| (r.2 as f64 * 2.0).min(5.0)).unwrap_or(0.0);
 
             // 現在の入力状態に合致するルールがあれば、それを「動機」として加算
             if let Some(rule) = self.bootstrapper.rules.iter().find(|r| r.condition_id == self.last_state_idx as i32 && r.target_action == offset + i) {
@@ -203,7 +203,7 @@ impl Singularity {
             let total_score = base_score + internal_field + knowledge_field + neuron_boost + momentum_boost + (self.morale * 0.1);
             
             let sharp_factor = (10.0 - self.system_temperature * 4.0).clamp(1.0, 10.0);
-            let collapsed_score = (total_score + 10.0).max(0.1).powf(sharp_factor) + (i as f32 * 0.01).sin() * 0.001;
+            let collapsed_score = (total_score + 10.0).max(0.1).powf(sharp_factor) + (i as f64 * 0.01).sin() * 0.001;
 
             if collapsed_score > max_score {
                 max_score = collapsed_score;
@@ -213,7 +213,7 @@ impl Singularity {
         best
     }
 
-    pub fn learn(&mut self, reward: f32) {
+    pub fn learn(&mut self, reward: f64) {
         let mut discount = 1.0;
         let gamma = 0.9;
         let bin_per_action = self.mwso.dim / self.action_size;
@@ -271,7 +271,7 @@ impl Singularity {
         self.history.clear();
     }
 
-    pub fn digest_experience(&mut self, td_error: f32, reward: f32, penalty: f32) {
+    pub fn digest_experience(&mut self, td_error: f64, reward: f64, penalty: f64) {
         if reward > 1.5 { self.system_temperature = 0.05; }
         else if reward > 0.0 {
             let cooling = if self.active_conditions.is_empty() { 0.8 } else { 0.85 };
@@ -285,7 +285,7 @@ impl Singularity {
         self.mwso.inject_state(1, -penalty, &vec![0.0; self.mwso.dim]);
         self.mwso.step_core(0.05, 0.0, 0.0, self.system_temperature, &vec![0.0; self.mwso.dim]);
 
-        let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
+        let current_states: Vec<f64> = self.nodes.iter().map(|n| n.state).collect();
         for node in &mut self.nodes { node.update(0.0, urgency, self.system_temperature, &current_states); }
 
         if urgency > 0.5 || (self.system_temperature - self.last_topology_update_temp).abs() > 0.05 {
@@ -315,7 +315,7 @@ impl Singularity {
         self.apply_elastic_fatigue();
     }
 
-    fn update_connection(&mut self, from: usize, to: usize, weight: f32) {
+    fn update_connection(&mut self, from: usize, to: usize, weight: f64) {
         if let Some(node) = self.nodes.get_mut(from) {
             if let Some(synapse) = node.synapses.iter_mut().find(|s| s.target_id == to) { synapse.weight = weight; }
             else { node.synapses.push(super::node::Synapse { target_id: to, weight }); }
@@ -332,24 +332,24 @@ impl Singularity {
         }
     }
 
-    pub fn update_all_nodes(&mut self, input_signals: &[f32], urgency: f32) {
+    pub fn update_all_nodes(&mut self, input_signals: &[f64], urgency: f64) {
         self.mwso.step_core(0.1, 0.0, 0.0, self.system_temperature, &vec![0.0; self.mwso.dim]);
-        let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
+        let current_states: Vec<f64> = self.nodes.iter().map(|n| n.state).collect();
         for (i, node) in self.nodes.iter_mut().enumerate() {
             let input = input_signals.get(i).cloned().unwrap_or(0.0);
             node.update(input, urgency, self.system_temperature, &current_states);
         }
     }
 
-    pub fn set_neuron_state(&mut self, idx: usize, state: f32) {
+    pub fn set_neuron_state(&mut self, idx: usize, state: f64) {
         if let Some(node) = self.nodes.get_mut(idx) { node.state = state.clamp(0.0, 1.0); }
     }
 
-    pub fn get_resonance_density(&self) -> f32 { self.mwso.calculate_rhyd() }
+    pub fn get_resonance_density(&self) -> f64 { self.mwso.calculate_rhyd() }
 
     /// 逆強化学習: 行動から動機を逆算する
     /// エキスパートの行動を観測し、それを引き起こす「ハミルトニアン場（動機）」を内省的に生成する
-    pub fn observe_expert(&mut self, state_idx: usize, expert_actions: &[usize], strength: f32) {
+    pub fn observe_expert(&mut self, state_idx: usize, expert_actions: &[usize], strength: f64) {
         // 1. 位相の同調（模倣位相ロック）
         for &action in expert_actions {
             self.mwso.align_to_action(action, strength, self.action_size);
@@ -387,7 +387,7 @@ impl Singularity {
         self.last_state_idx = state_idx;
     }
 
-    pub fn add_wormhole(&mut self, from_action: usize, to_action: usize, strength: f32) {
+    pub fn add_wormhole(&mut self, from_action: usize, to_action: usize, strength: f64) {
         let bin_per_action = self.mwso.dim / self.action_size;
         let from_idx = from_action * bin_per_action;
         let to_idx = to_action * bin_per_action;
@@ -442,7 +442,7 @@ impl Singularity {
         file.read_to_end(&mut buf)?;
         let mut cur = 0;
         let read_u32 = |p: &mut usize| -> u32 { let v = u32::from_le_bytes(buf[*p..*p+4].try_into().unwrap()); *p+=4; v };
-        let read_f32 = |p: &mut usize| -> f32 { let v = f32::from_le_bytes(buf[*p..*p+4].try_into().unwrap()); *p+=4; v };
+        let read_f64 = |p: &mut usize| -> f64 { let v = f64::from_le_bytes(buf[*p..*p+8].try_into().unwrap()); *p+=8; v };
         
         if &buf[0..4] != b"DSYM" { return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Header")); }
         cur += 4;
@@ -452,18 +452,18 @@ impl Singularity {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "state_size mismatch"));
         }
 
-        self.system_temperature = read_f32(&mut cur);
-        self.adrenaline = read_f32(&mut cur);
-        self.frustration = read_f32(&mut cur);
-        self.velocity_trust = read_f32(&mut cur);
-        self.morale = read_f32(&mut cur);
-        self.patience = read_f32(&mut cur);
-        self.exploration_beta = read_f32(&mut cur);
-        self.horizon.glutamate_buffer = read_f32(&mut cur);
+        self.system_temperature = read_f64(&mut cur);
+        self.adrenaline = read_f64(&mut cur);
+        self.frustration = read_f64(&mut cur);
+        self.velocity_trust = read_f64(&mut cur);
+        self.morale = read_f64(&mut cur);
+        self.patience = read_f64(&mut cur);
+        self.exploration_beta = read_f64(&mut cur);
+        self.horizon.glutamate_buffer = read_f64(&mut cur);
         
-        for f in &mut self.fatigue_map { *f = read_f32(&mut cur); }
-        for m in &mut self.action_momentum { *m = read_f32(&mut cur); }
-        for g in &mut self.mwso.gravity_field { *g = read_f32(&mut cur); }
+        for f in &mut self.fatigue_map { *f = read_f64(&mut cur); }
+        for m in &mut self.action_momentum { *m = read_f64(&mut cur); }
+        for g in &mut self.mwso.gravity_field { *g = read_f64(&mut cur); }
         
         let in_hist_len = read_u32(&mut cur) as usize;
         self.input_history.clear();
@@ -477,11 +477,11 @@ impl Singularity {
         let nodes_len = read_u32(&mut cur) as usize;
         for i in 0..nodes_len {
             if i < self.nodes.len() {
-                self.nodes[i].state = read_f32(&mut cur);
-                self.nodes[i].base_decay = read_f32(&mut cur);
+                self.nodes[i].state = read_f64(&mut cur);
+                self.nodes[i].base_decay = read_f64(&mut cur);
             } else {
-                let _ = read_f32(&mut cur);
-                let _ = read_f32(&mut cur);
+                let _ = read_f64(&mut cur);
+                let _ = read_f64(&mut cur);
             }
         }
         
@@ -496,11 +496,11 @@ impl Singularity {
 
         let mwso_dim = read_u32(&mut cur) as usize;
         if mwso_dim == self.mwso.dim {
-            for f in &mut self.mwso.psi_real { *f = read_f32(&mut cur); }
-            for f in &mut self.mwso.psi_imag { *f = read_f32(&mut cur); }
+            for f in &mut self.mwso.psi_real { *f = read_f64(&mut cur); }
+            for f in &mut self.mwso.psi_imag { *f = read_f64(&mut cur); }
             let theta_len = read_u32(&mut cur) as usize;
             for i in 0..theta_len {
-                let val = read_f32(&mut cur);
+                let val = read_f64(&mut cur);
                 if i < self.mwso.theta.len() { self.mwso.theta[i] = val; }
             }
         }

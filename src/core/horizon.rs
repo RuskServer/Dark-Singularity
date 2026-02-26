@@ -1,8 +1,8 @@
 use super::node::Node;
 
 pub struct Horizon {
-    pub glutamate_buffer: f32,
-    pub homeostatic_threshold: f32,
+    pub glutamate_buffer: f64,
+    pub homeostatic_threshold: f64,
 }
 
 impl Horizon {
@@ -13,9 +13,9 @@ impl Horizon {
         }
     }
 
-    pub fn regulate(&mut self, system_temp: f32, node_indices: &[usize], nodes: &mut [Node]) {
+    pub fn regulate(&mut self, system_temp: f64, node_indices: &[usize], nodes: &mut [Node]) {
         // 1. 総活動量の計測
-        let total_activity: f32 = node_indices.iter().map(|&i| nodes[i].state).sum();
+        let total_activity: f64 = node_indices.iter().map(|&i| nodes[i].state).sum();
 
         // 2. バッファの蓄積と減衰
         self.glutamate_buffer += total_activity * 0.1;
@@ -31,7 +31,7 @@ impl Horizon {
         }
     }
 
-    pub fn get_intervention_level(&self) -> f32 {
+    pub fn get_intervention_level(&self) -> f64 {
         (self.glutamate_buffer / 3.0).min(1.0)
     }
 }

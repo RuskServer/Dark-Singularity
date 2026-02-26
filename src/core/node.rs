@@ -1,17 +1,17 @@
 // のロジックを移植
 pub struct Synapse {
     pub target_id: usize, // インデックスによる直接参照
-    pub weight: f32,
+    pub weight: f64,
 }
 
 pub struct Node {
-    pub state: f32,
-    pub base_decay: f32,
+    pub state: f64,
+    pub base_decay: f64,
     pub synapses: Vec<Synapse>,
 }
 
 impl Node {
-    pub fn new(initial_decay: f32) -> Self {
+    pub fn new(initial_decay: f64) -> Self {
         Self {
             state: 0.0,
             base_decay: initial_decay,
@@ -20,7 +20,7 @@ impl Node {
     }
 
     /// [TQH Update] システム温度を考慮した更新ロジック
-    pub fn update(&mut self, input: f32, urgency: f32, system_temp: f32, node_states: &[f32]) {
+    pub fn update(&mut self, input: f64, urgency: f64, system_temp: f64, node_states: &[f64]) {
         let mut synaptic_input = input;
     
         // シナプス入力の計算 (node_states からインデックスで取得)
@@ -43,7 +43,7 @@ impl Node {
         self.state = self.state.clamp(0.0, 1.0);
     }
 
-    pub fn apply_inhibition(&mut self, dampening_factor: f32) {
+    pub fn apply_inhibition(&mut self, dampening_factor: f64) {
         self.state -= self.state * dampening_factor;
         self.state = self.state.max(0.0);
     }

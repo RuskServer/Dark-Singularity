@@ -74,13 +74,13 @@ fn benchmark_future_prediction_accuracy() {
         ai.learn(reward);
         
         if (i + 1) % window_size == 0 {
-            let acc = (window_correct as f32 / window_size as f32) * 100.0;
+            let acc = (window_correct as f64 / window_size as f64) * 100.0;
             println!("Steps {:03}-{:03} | Success Rate: {:>5.1}%", i - (window_size - 1) + 1, i + 1, acc);
             window_correct = 0;
         }
     }
     
-    let total_acc = (correct_count as f32 / total_steps as f32) * 100.0;
+    let total_acc = (correct_count as f64 / total_steps as f64) * 100.0;
     println!("Global Predictive Accuracy: {:.2}%", total_acc);
     
     // ランダム(10%)よりは有意に高いはず
@@ -132,12 +132,12 @@ fn benchmark_knowledge_guided_prediction() {
         ai.learn(reward);
 
         if (i + 1) % 20 == 0 {
-            let acc = (correct_count as f32 / (i + 1) as f32) * 100.0;
+            let acc = (correct_count as f64 / (i + 1) as f64) * 100.0;
             println!("Step {:03} | Cumulative Accuracy: {:>5.1}%", i + 1, acc);
         }
     }
 
-    let total_acc = (correct_count as f32 / total_steps as f32) * 100.0;
+    let total_acc = (correct_count as f64 / total_steps as f64) * 100.0;
     println!("Final Knowledge-Guided Accuracy: {:.2}%", total_acc);
 
     // 知識があるため、最初から極めて高い精度が期待できる
@@ -189,14 +189,14 @@ fn benchmark_adaptation_to_unknown() {
 
         if (i + 1) % 60 == 0 {
             let steps_per_type = (i + 1) / 3;
-            let acc_k = (correct_known as f32 / steps_per_type as f32) * 100.0;
-            let acc_u = (correct_unknown as f32 / (steps_per_type * 2) as f32) * 100.0;
+            let acc_k = (correct_known as f64 / steps_per_type as f64) * 100.0;
+            let acc_u = (correct_unknown as f64 / (steps_per_type * 2) as f64) * 100.0;
             println!("Step {:03} | Known Acc: {:>5.1}% | Unknown Acc: {:>5.1}% | Temp: {:.2}", i + 1, acc_k, acc_u, ai.system_temperature);
         }
     }
 
-    let final_acc_k = (correct_known as f32 / (total_steps as f32 / 3.0)) * 100.0;
-    let final_acc_u = (correct_unknown as f32 / (total_steps as f32 / 3.0 * 2.0)) * 100.0;
+    let final_acc_k = (correct_known as f64 / (total_steps as f64 / 3.0)) * 100.0;
+    let final_acc_u = (correct_unknown as f64 / (total_steps as f64 / 3.0 * 2.0)) * 100.0;
     
     println!("Final Known Stability: {:.2}%", final_acc_k);
     println!("Final Unknown Adaptability: {:.2}%", final_acc_u);
@@ -241,14 +241,14 @@ fn benchmark_high_dimensional_stress_test() {
         ai.learn(reward);
 
         if (i + 1) % window_size == 0 {
-            let acc = (window_correct as f32 / window_size as f32) * 100.0;
+            let acc = (window_correct as f64 / window_size as f64) * 100.0;
             println!("Steps {:03}-{:03} | Window Success Rate: {:>5.1}% | Temp: {:.2}", 
                 i - (window_size - 1) + 1, i + 1, acc, ai.system_temperature);
             window_correct = 0;
         }
     }
 
-    let total_acc = (correct_count as f32 / total_steps as f32) * 100.0;
+    let total_acc = (correct_count as f64 / total_steps as f64) * 100.0;
     println!("Final Global Stress-Test Accuracy: {:.2}%", total_acc);
 
     // 10状態/16アクションという複雑な環境でも 70% 以上の適応を期待

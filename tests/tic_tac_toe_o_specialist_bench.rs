@@ -139,9 +139,9 @@ Phase 2: Starting Co-Evolution...");
         }
 
         if m % report_interval == 0 {
-            let win_rate_x = (x_wins as f32 / report_interval as f32) * 100.0;
-            let win_rate_o = (o_wins as f32 / report_interval as f32) * 100.0;
-            let inv_rate = (invalid_moves as f32 / report_interval as f32) * 100.0;
+            let win_rate_x = (x_wins as f64 / report_interval as f64) * 100.0;
+            let win_rate_o = (o_wins as f64 / report_interval as f64) * 100.0;
+            let inv_rate = (invalid_moves as f64 / report_interval as f64) * 100.0;
             println!("Match {:03}-{:03} | X-Win: {:>5.1}% | O-Win: {:>5.1}% | Invalid: {:>5.1}% | X-Rhyd: {:.1} | O-Rhyd: {:.1}", 
                      m-report_interval+1, m, win_rate_x, win_rate_o, inv_rate, ai_x.get_resonance_density(), ai_o.get_resonance_density());
             x_wins = 0; o_wins = 0; draws = 0; invalid_moves = 0;

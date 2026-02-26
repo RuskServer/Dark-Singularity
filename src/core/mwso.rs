@@ -1,20 +1,20 @@
 // Monolithic Wave-State Operator (MWSO) - Elastic Evolution
 // Analog Penalty Fields, Dissipative Failure Memory.
 
-use std::f32::consts::PI;
+use std::f64::consts::PI;
 
 pub struct MWSO {
-    pub psi_real: Vec<f32>,
-    pub psi_imag: Vec<f32>,
-    pub theta: Vec<f32>,
-    pub frequencies: Vec<f32>,
-    pub gravity_field: Vec<f32>, 
-    pub entanglements: Vec<(usize, usize, f32)>, 
+    pub psi_real: Vec<f64>,
+    pub psi_imag: Vec<f64>,
+    pub theta: Vec<f64>,
+    pub frequencies: Vec<f64>,
+    pub gravity_field: Vec<f64>, 
+    pub entanglements: Vec<(usize, usize, f64)>, 
     
     // --- Global Memory Wave (Quantum Superposition) ---
     // A single wave that stores multiple experiences through interference patterns.
-    pub memory_psi_real: Vec<f32>,
-    pub memory_psi_imag: Vec<f32>,
+    pub memory_psi_real: Vec<f64>,
+    pub memory_psi_imag: Vec<f64>,
     
     pub dim: usize,
 }
@@ -24,8 +24,8 @@ impl MWSO {
         let theta_size = dim * 2;
         let mut theta = vec![0.0; theta_size];
         let mut frequencies = vec![0.0; dim];
-        for i in 0..theta_size { theta[i] = (i as f32 * 0.1).sin() * 0.1; }
-        for i in 0..dim { frequencies[i] = (i as f32 / dim as f32).powi(2) * 2.0 * PI; }
+        for i in 0..theta_size { theta[i] = (i as f64 * 0.1).sin() * 0.1; }
+        for i in 0..dim { frequencies[i] = (i as f64 / dim as f64).powi(2) * 2.0 * PI; }
         Self { 
             psi_real: vec![0.01; dim], 
             psi_imag: vec![0.0; dim], 
@@ -39,25 +39,25 @@ impl MWSO {
         }
     }
 
-    pub fn add_wormhole(&mut self, from: usize, to: usize, strength: f32) {
+    pub fn add_wormhole(&mut self, from: usize, to: usize, strength: f64) {
         if from < self.dim && to < self.dim {
             self.entanglements.push((from, to, strength));
         }
     }
 
     /// Imprints a state into the global memory wave via superposition.
-    pub fn imprint_memory(&mut self, psi_real: &[f32], psi_imag: &[f32], strength: f32) {
+    pub fn imprint_memory(&mut self, psi_real: &[f64], psi_imag: &[f64], strength: f64) {
         if psi_real.len() != self.dim || psi_imag.len() != self.dim { return; }
         for i in 0..self.dim {
             self.memory_psi_real[i] += psi_real[i] * strength;
             self.memory_psi_imag[i] += psi_imag[i] * strength;
         }
         // 次元数に比例した正規化
-        let target = self.dim as f32 * 0.01;
+        let target = self.dim as f64 * 0.01;
         self.normalize_memory(target);
     }
 
-    fn normalize_memory(&mut self, target_norm: f32) {
+    fn normalize_memory(&mut self, target_norm: f64) {
         let mut total_energy_sq = 0.0;
         for i in 0..self.dim { total_energy_sq += self.memory_psi_real[i].powi(2) + self.memory_psi_imag[i].powi(2); }
         let norm = total_energy_sq.sqrt();
@@ -67,11 +67,11 @@ impl MWSO {
         }
     }
 
-    pub fn inject_state(&mut self, state_idx: usize, strength: f32, penalty_field: &[f32]) {
+    pub fn inject_state(&mut self, state_idx: usize, strength: f64, penalty_field: &[f64]) {
         if state_idx >= self.dim { return; }
         let primes = [31, 37, 41, 43, 47, 53, 59, 61, 67, 71];
         let stride = primes[state_idx % primes.len()];
-        let phase_offset = (state_idx as f32 * 1.618).rem_euclid(2.0 * PI);
+        let phase_offset = (state_idx as f64 * 1.618).rem_euclid(2.0 * PI);
         
         for i in 0..16 { 
             let idx = (state_idx + i * stride) % self.dim;
@@ -86,7 +86,7 @@ impl MWSO {
         }
     }
 
-    pub fn step_core(&mut self, dt: f32, speed_boost: f32, focus_factor: f32, system_temp: f32, penalty_field: &[f32]) {
+    pub fn step_core(&mut self, dt: f64, speed_boost: f64, focus_factor: f64, system_temp: f64, penalty_field: &[f64]) {
         let solidification = 0.9999 - (0.0005 * (1.0 - focus_factor));
         let effective_dt = dt * (1.0 + speed_boost);
 
@@ -149,7 +149,7 @@ impl MWSO {
         self.normalize(target_norm);
     }
 
-    fn normalize(&mut self, target_norm: f32) {
+    fn normalize(&mut self, target_norm: f64) {
         let mut total_energy_sq = 0.0;
         for i in 0..self.dim { total_energy_sq += self.psi_real[i].powi(2) + self.psi_imag[i].powi(2); }
         let norm = total_energy_sq.sqrt();
@@ -159,7 +159,7 @@ impl MWSO {
         }
     }
 
-    pub fn get_action_scores(&self, offset: usize, size: usize, exploration_noise: f32, penalty_field: &[f32]) -> Vec<f32> {
+    pub fn get_action_scores(&self, offset: usize, size: usize, exploration_noise: f64, penalty_field: &[f64]) -> Vec<f64> {
         let bin_per_action = self.dim / size;
         let mut scores = Vec::with_capacity(size);
         for i in 0..size {
@@ -180,14 +180,14 @@ impl MWSO {
             if exploration_noise > 0.0 {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-                score += (((seed + i as u128) % 1000) as f32 / 1000.0 - 0.5) * exploration_noise;
+                score += (((seed + i as u128) % 1000) as f64 / 1000.0 - 0.5) * exploration_noise;
             }
             scores.push(score);
         }
         scores
     }
 
-    pub fn adapt(&mut self, reward: f32, last_actions: &[usize], system_temp: f32, action_size: usize) {
+    pub fn adapt(&mut self, reward: f64, last_actions: &[usize], system_temp: f64, action_size: usize) {
         let annealing = (system_temp * 0.5).clamp(0.1, 1.0);
         let base_lr = 1.2 * annealing; 
         let bin_per_action = self.dim / action_size;
@@ -247,7 +247,7 @@ impl MWSO {
     }
 
     /// 行動から動機を逆算するための位相アライメント
-    pub fn align_to_action(&mut self, action_idx: usize, strength: f32, action_size: usize) {
+    pub fn align_to_action(&mut self, action_idx: usize, strength: f64, action_size: usize) {
         let bin_per_action = self.dim / action_size;
         let base_idx = (action_idx * bin_per_action) % self.dim;
         let lr = 0.5 * strength;
@@ -263,16 +263,16 @@ impl MWSO {
         }
     }
 
-    pub fn inject_exploration_noise(&mut self, strength: f32) {
+    pub fn inject_exploration_noise(&mut self, strength: f64) {
         use std::time::{SystemTime, UNIX_EPOCH};
         let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         for i in 0..self.dim {
-            let noise = ((seed % (i as u128 + 1)) as f32 / (i as f32 + 1.0)).sin();
+            let noise = ((seed % (i as u128 + 1)) as f64 / (i as f64 + 1.0)).sin();
             self.psi_real[i] += noise * strength;
         }
     }
 
-    pub fn inject_external_state(&mut self, psi_real: &[f32], psi_imag: &[f32], strength: f32) {
+    pub fn inject_external_state(&mut self, psi_real: &[f64], psi_imag: &[f64], strength: f64) {
         if psi_real.len() != self.dim || psi_imag.len() != self.dim { return; }
         for i in 0..self.dim {
             self.psi_real[i] += psi_real[i] * strength;
@@ -280,7 +280,7 @@ impl MWSO {
         }
     }
 
-    pub fn calculate_rhyd(&self) -> f32 {
+    pub fn calculate_rhyd(&self) -> f64 {
         let mut rd = 0.0;
         let mut active_components = 0.0;
         for i in 0..self.dim {
@@ -291,6 +291,6 @@ impl MWSO {
                 active_components += 1.0;
             }
         }
-        rd * (active_components / self.dim as f32) * 100.0
+        rd * (active_components / self.dim as f64) * 100.0
     }
 }

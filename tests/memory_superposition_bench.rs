@@ -1,13 +1,13 @@
 use dark_singularity::core::singularity::Singularity;
 
 /// Helper to generate a distinct wave pattern for testing.
-fn generate_pattern(dim: usize, seed: usize) -> (Vec<f32>, Vec<f32>) {
+fn generate_pattern(dim: usize, seed: usize) -> (Vec<f64>, Vec<f64>) {
     let mut re = vec![0.0; dim];
     let mut im = vec![0.0; dim];
     for i in 0..dim {
-        let val = ((i + seed) as f32 * 0.1).sin();
+        let val = ((i + seed) as f64 * 0.1).sin();
         re[i] = val;
-        im[i] = ((i + seed) as f32 * 0.1).cos();
+        im[i] = ((i + seed) as f64 * 0.1).cos();
     }
     (re, im)
 }
@@ -52,7 +52,7 @@ fn benchmark_superposition_capacity() {
         total_resonance += resonance;
     }
 
-    let avg_resonance = total_resonance / num_patterns as f32;
+    let avg_resonance = total_resonance / num_patterns as f64;
     println!("Average Retrieval Resonance: {:.4}", avg_resonance);
 
     // Each pattern should have a high resonance. 

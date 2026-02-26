@@ -25,7 +25,7 @@ fn benchmark_chaos_dynamic_adaptation() {
     for i in 0..total_steps {
         // 1. カオス写像による状態の決定
         x = r * x * (1.0 - x);
-        let state_idx = (x * (state_size as f32 - 1.0)) as usize;
+        let state_idx = (x * (state_size as f64 - 1.0)) as usize;
 
         // 2. 動的な法則の適用
         if i == 1000 {
@@ -54,14 +54,14 @@ fn benchmark_chaos_dynamic_adaptation() {
 
         // 5. 進捗表示
         if (i + 1) % window_size == 0 {
-            let acc = (window_correct as f32 / window_size as f32) * 100.0;
+            let acc = (window_correct as f64 / window_size as f64) * 100.0;
             println!("Steps {:04}-{:04} | Law Offset: {} | Window Accuracy: {:>5.1}% | Rhyd: {:.2}", 
                 i - (window_size - 1) + 1, i + 1, law_offset, acc, ai.get_resonance_density());
             window_correct = 0;
         }
     }
 
-    let total_acc = (correct_count as f32 / total_steps as f32) * 100.0;
+    let total_acc = (correct_count as f64 / total_steps as f64) * 100.0;
     println!("Final Chaos-Adaptation Score: {:.2}%", total_acc);
 
     // カオスかつ動的環境下でも、ランダム(5%)を上回る適応力を期待
@@ -102,9 +102,9 @@ fn benchmark_complex_interference_resolution() {
         ai.learn(reward);
 
         if (i + 1) % 100 == 0 {
-            println!("Step {:03} | Interference Resolution Accuracy: {:.1}%", i + 1, (correct as f32 / (i + 1) as f32) * 100.0);
+            println!("Step {:03} | Interference Resolution Accuracy: {:.1}%", i + 1, (correct as f64 / (i + 1) as f64) * 100.0);
         }
     }
 
-    assert!(correct as f32 / total_steps as f32 > 0.4, "Should resolve primary signal among interference");
+    assert!(correct as f64 / total_steps as f64 > 0.4, "Should resolve primary signal among interference");
 }

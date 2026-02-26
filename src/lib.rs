@@ -1,8 +1,8 @@
 // src/lib.rs
 use crate::core::singularity::Singularity;
 use jni::JNIEnv;
-use jni::objects::{JClass, JFloatArray, JIntArray, JString};
-use jni::sys::{jfloat, jfloatArray, jint, jlong, jsize,jintArray};
+use jni::objects::{JClass, JDoubleArray, JIntArray, JString};
+use jni::sys::{jdouble, jdoubleArray, jint, jlong, jsize, jintArray};
 
 pub mod core;
 
@@ -31,14 +31,14 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
-    inputs: JFloatArray,
+    inputs: JDoubleArray,
 ) -> jint {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
 
-    let input_vec: Vec<f32> = {
+    let input_vec: Vec<f64> = {
         let len = env.get_array_length(&inputs).unwrap_or(0) as usize;
-        let mut buf = vec![0.0f32; len];
-        env.get_float_array_region(&inputs, 0, &mut buf).unwrap_or(());
+        let mut buf = vec![0.0f64; len];
+        env.get_double_array_region(&inputs, 0, &mut buf).unwrap_or(());
         buf
     };
 
@@ -54,13 +54,13 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
-    inputs: JFloatArray,
+    inputs: JDoubleArray,
 ) -> jintArray {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
     
     let len = env.get_array_length(&inputs).unwrap_or(0) as usize;
-    let mut buf = vec![0.0f32; len];
-    env.get_float_array_region(&inputs, 0, &mut buf).unwrap_or(());
+    let mut buf = vec![0.0f64; len];
+    env.get_double_array_region(&inputs, 0, &mut buf).unwrap_or(());
     let state_idx = if !buf.is_empty() { buf[0] as usize } else { 0 };
 
     let actions = singularity.select_actions(state_idx);
@@ -76,11 +76,11 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
-    reward: jfloat,
+    reward: jdouble,
 ) {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
     // 最後に選択されたアクション群に対して報酬を適用
-    singularity.learn(reward as f32);
+    singularity.learn(reward as f64);
 }
 
 // src/lib.rs
@@ -106,9 +106,9 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
-) -> jfloat {
+) -> jdouble {
     let singularity = unsafe { &*(handle as *const Singularity) };
-    singularity.system_temperature as jfloat
+    singularity.system_temperature as jdouble
 }
 
 #[unsafe(no_mangle)]
@@ -116,10 +116,10 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
-) -> jfloat {
+) -> jdouble {
     let singularity = unsafe { &*(handle as *const Singularity) };
     // Horizon のバッファ状況から介入レベル(0.0-1.0)を取得
-    singularity.horizon.get_intervention_level() as jfloat
+    singularity.horizon.get_intervention_level() as jdouble
 }
 
 #[unsafe(no_mangle)]
@@ -128,7 +128,7 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _class: JClass,
     handle: jlong,
     action_idx: jint,
-) -> jfloat {
+) -> jdouble {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
 
     // JNI 経由のスコア取得ではノイズを乗せない。複素版に戻す
@@ -138,9 +138,9 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     if idx < mwso_scores.len() {
         let wave_score = mwso_scores[idx];
         let fatigue = singularity.fatigue_map[idx];
-        (wave_score - (fatigue * 2.0)) as jfloat
+        (wave_score - (fatigue * 2.0)) as jdouble
     } else {
-        0.0f32
+        0.0f64
     }
 }
 
@@ -149,9 +149,9 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
-) -> jfloat {
+) -> jdouble {
     let singularity = unsafe { &*(handle as *const Singularity) };
-    singularity.frustration as jfloat
+    singularity.frustration as jdouble
 }
 
 #[unsafe(no_mangle)]
@@ -159,9 +159,9 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
-) -> jfloat {
+) -> jdouble {
     let singularity = unsafe { &*(handle as *const Singularity) };
-    singularity.adrenaline as jfloat
+    singularity.adrenaline as jdouble
 }
 
 #[unsafe(no_mangle)]
@@ -169,10 +169,10 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
-    beta: jfloat,
+    beta: jdouble,
 ) {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
-    singularity.exploration_beta = beta as f32;
+    singularity.exploration_beta = beta as f64;
 }
 
 #[unsafe(no_mangle)]
@@ -180,9 +180,9 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
-) -> jfloat {
+) -> jdouble {
     let singularity = unsafe { &*(handle as *const Singularity) };
-    singularity.exploration_beta as jfloat
+    singularity.exploration_beta as jdouble
 }
 
 #[unsafe(no_mangle)]
@@ -191,10 +191,10 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     _class: JClass,
     handle: jlong,
     idx: jint,
-    state: jfloat,
+    state: jdouble,
 ) {
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
-    singularity.set_neuron_state(idx as usize, state as f32);
+    singularity.set_neuron_state(idx as usize, state as f64);
 }
 
 #[unsafe(no_mangle)]
@@ -202,17 +202,17 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     env: JNIEnv,
     _class: JClass,
     handle: jlong,
-) -> jfloatArray {
+) -> jdoubleArray {
     let singularity = unsafe { &*(handle as *const Singularity) };
-    let states: Vec<f32> = singularity.nodes.iter().map(|n| n.state).collect();
+    let states: Vec<f64> = singularity.nodes.iter().map(|n| n.state).collect();
 
-    // 1. ラッパーオブジェクト(JFloatArray)を作成
-    let output = env.new_float_array(states.len() as jsize).unwrap();
+    // 1. ラッパーオブジェクト(JDoubleArray)を作成
+    let output = env.new_double_array(states.len() as jsize).unwrap();
 
     // 2. 値をセット
-    env.set_float_array_region(&output, 0, &states).unwrap();
+    env.set_double_array_region(&output, 0, &states).unwrap();
 
-    // 3. 重要：.into_raw() を呼び出して jfloatArray (ポインタ) に変換して返す
+    // 3. 重要：.into_raw() を呼び出して jdoubleArray (ポインタ) に変換して返す
     output.into_raw()
 }
 
@@ -283,79 +283,41 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
 }
 
 #[unsafe(no_mangle)]
-
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_setActiveConditionsNative(
-
     env: JNIEnv,
-
     _class: JClass,
-
     handle: jlong,
-
     condition_ids: JIntArray,
-
 ) {
-
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
-
     let len = env.get_array_length(&condition_ids).unwrap_or(0) as usize;
-
     let mut buf = vec![0i32; len];
-
     env.get_int_array_region(&condition_ids, 0, &mut buf).unwrap_or(());
-
     
-
     singularity.set_active_conditions(&buf);
-
 }
 
-
-
 #[unsafe(no_mangle)]
-
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_bootstrapNative(
-
     env: JNIEnv,
-
     _class: JClass,
-
     handle: jlong,
-
     condition_indices: JIntArray,
-
     action_indices: JIntArray,
-
-    strengths: JFloatArray,
-
+    strengths: JDoubleArray,
 ) {
-
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
-
     
-
     let len = env.get_array_length(&condition_indices).unwrap_or(0) as usize;
-
     let mut conds = vec![0i32; len];
-
     let mut actions = vec![0i32; len];
-
-    let mut str_vals = vec![0.0f32; len];
-
-
+    let mut str_vals = vec![0.0f64; len];
 
     env.get_int_array_region(&condition_indices, 0, &mut conds).unwrap_or(());
-
     env.get_int_array_region(&action_indices, 0, &mut actions).unwrap_or(());
-
-    env.get_float_array_region(&strengths, 0, &mut str_vals).unwrap_or(());
-
-
+    env.get_double_array_region(&strengths, 0, &mut str_vals).unwrap_or(());
 
     for i in 0..len {
-
         singularity.bootstrapper.add_hamiltonian_rule(conds[i], actions[i] as usize, str_vals[i]);
-
     }
-
 }

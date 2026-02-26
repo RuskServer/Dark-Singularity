@@ -31,19 +31,19 @@ impl Visualizer {
 
         // 波動データのプロット
         // X: Index, Y: Real, Z: Imaginary
-        let data: Vec<(f32, f32, f32)> = (0..mwso.dim)
-            .map(|i| (i as f32, mwso.psi_real[i], mwso.psi_imag[i]))
+        let data: Vec<(f64, f64, f64)> = (0..mwso.dim)
+            .map(|i| (i as f64, mwso.psi_real[i], mwso.psi_imag[i]))
             .collect();
 
         // 波動をネオンブルーの線で描画
         chart.draw_series(LineSeries::new(
-            data.iter().map(|&(x, y, z)| (x as f64, y as f64, z as f64)),
+            data.iter().map(|&(x, y, z)| (x, y, z)),
             &CYAN,
         ))?;
 
         // 各成分を小さな点で強調
         chart.draw_series(data.iter().map(|&(x, y, z)| {
-            Circle::new((x as f64, y as f64, z as f64), 2, Into::<ShapeStyle>::into(&CYAN).filled())
+            Circle::new((x, y, z), 2, Into::<ShapeStyle>::into(&CYAN).filled())
         }))?;
 
         root.present()?;

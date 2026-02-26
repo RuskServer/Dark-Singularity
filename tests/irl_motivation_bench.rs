@@ -46,7 +46,7 @@ fn benchmark_irl_imitation_learning() {
             state_idx, selected, target_action, if selected == target_action { "MATCH" } else { "MISS" });
     }
 
-    let acc = (correct_count as f32 / test_steps as f32) * 100.0;
+    let acc = (correct_count as f64 / test_steps as f64) * 100.0;
     println!("Final IRL Acquisition Accuracy: {:.2}%", acc);
 
     // 報酬なしの観察のみで、ランダム(10%)を大幅に超える習得ができているはず

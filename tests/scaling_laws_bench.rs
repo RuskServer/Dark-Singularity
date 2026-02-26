@@ -2,7 +2,7 @@ use dark_singularity::core::mwso::MWSO;
 use dark_singularity::core::singularity::Singularity;
 
 /// 最適化された SNR 計算
-fn calculate_interference_snr_optimized(mwso: &MWSO, patterns: &Vec<(Vec<f32>, Vec<f32>)>, target_idx: usize, total_energy_sq: f32) -> f32 {
+fn calculate_interference_snr_optimized(mwso: &MWSO, patterns: &Vec<(Vec<f64>, Vec<f64>)>, target_idx: usize, total_energy_sq: f64) -> f64 {
     let dim = mwso.dim;
     let (target_re, target_im) = &patterns[target_idx];
     
@@ -15,18 +15,18 @@ fn calculate_interference_snr_optimized(mwso: &MWSO, patterns: &Vec<(Vec<f32>, V
     let signal_sq = s_re.powi(2) + s_im.powi(2);
     
     // Noise: 全エネルギーからターゲット信号成分を除いたもの
-    let noise_floor_sq = (total_energy_sq - signal_sq).max(0.0) / (patterns.len() as f32);
+    let noise_floor_sq = (total_energy_sq - signal_sq).max(0.0) / (patterns.len() as f64);
     
     if noise_floor_sq < 1e-10 { return 100.0; }
     (signal_sq / noise_floor_sq).sqrt()
 }
 
-fn generate_random_phase_pattern(dim: usize, seed: usize) -> (Vec<f32>, Vec<f32>) {
+fn generate_random_phase_pattern(dim: usize, seed: usize) -> (Vec<f64>, Vec<f64>) {
     let mut re = vec![0.0; dim];
     let mut im = vec![0.0; dim];
-    let inv_sqrt_dim = 1.0 / (dim as f32).sqrt();
+    let inv_sqrt_dim = 1.0 / (dim as f64).sqrt();
     for i in 0..dim {
-        let phase = (((i + seed * 123) as f32 * 0.618).rem_euclid(1.0)) * 2.0 * std::f32::consts::PI;
+        let phase = (((i + seed * 123) as f64 * 0.618).rem_euclid(1.0)) * 2.0 * std::f64::consts::PI;
         re[i] = phase.cos() * inv_sqrt_dim;
         im[i] = phase.sin() * inv_sqrt_dim;
     }
@@ -38,7 +38,7 @@ fn benchmark_memory_capacity_scaling() {
     println!("\n=== Benchmark 1: Dimension (D) vs Superposition Capacity (N) ===");
     println!("Criterion: Interference SNR >= 5.0 (Crosstalk Limit)");
 
-    let dimensions = vec![1024, 2048, 3072,4096, 8192, 16384];
+    let dimensions = vec![1024, 2048, 4096, 8192, 16384];
     println!("{:<10} | {:<10} | {:<10} | {:<10}", "Dim (D)", "Max N", "N/D Ratio", "Scaling Log");
     println!("{}", "-".repeat(60));
 
@@ -71,7 +71,7 @@ fn benchmark_memory_capacity_scaling() {
             }
             n = next_n;
             // 次元に応じた現実的な上限を設定（停滞防止）
-            if n >= dim * 64 { break; } // かなり大きくする
+            if n >= dim * 64 { break; } 
             
             // 進捗が分かりにくいので、たまに出力
             if n % 500 == 0 {
@@ -81,13 +81,13 @@ fn benchmark_memory_capacity_scaling() {
             }
         }
 
-        let ratio = n as f32 / dim as f32;
-        let scaling_exponent = if prev_n > 0.0 { (n as f32 / prev_n).log2() / (dim as f32 / prev_d).log2() } else { 0.0 };
+        let ratio = n as f64 / dim as f64;
+        let scaling_exponent = if prev_n > 0.0 { (n as f64 / prev_n).log2() / (dim as f64 / prev_d).log2() } else { 0.0 };
         
         println!("\n{:<10} | {:<10} | {:<10.4} | O(D^{:.2})", dim, n, ratio, scaling_exponent);
         
-        prev_n = n as f32;
-        prev_d = dim as f32;
+        prev_n = n as f64;
+        prev_d = dim as f64;
     }
 }
 
@@ -102,15 +102,15 @@ fn benchmark_rhyd_crystallization() {
     for epoch in 1..=200 {
         let state_idx = epoch % 5;
         let target_action = (state_idx * 3) % action_size;
-        ai.system_temperature = (2.0 * (1.0 - epoch as f32 / 180.0)).max(0.01);
+        ai.system_temperature = (2.0 * (1.0 - epoch as f64 / 180.0)).max(0.01);
         let _ = ai.select_actions(state_idx);
         ai.learn(if ai.last_actions[0] % action_size == target_action { 2.0 } else { -2.0 });
 
         if epoch % 20 == 0 {
             let rhyd = ai.get_resonance_density();
             let scores = ai.mwso.get_action_scores(0, action_size, 0.0, &vec![0.0; ai.mwso.dim]);
-            let max_score = scores.iter().cloned().fold(0./0., f32::max);
-            let sum_score: f32 = scores.iter().sum();
+            let max_score = scores.iter().cloned().fold(0./0., f64::max);
+            let sum_score: f64 = scores.iter().sum();
             let confidence = if sum_score > 0.0 { max_score / sum_score } else { 0.0 };
             println!("{:<10} | {:<10.2} | {:<10.2} | {:<15.4} | {:<10}", 
                      epoch, ai.system_temperature, rhyd, confidence, if confidence > 0.95 { "CRYSTAL" } else { "FLUID" });

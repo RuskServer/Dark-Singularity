@@ -9,7 +9,7 @@ pub struct HamiltonianRule {
     pub target_action: usize,
     /// 知識の強制力 (resonance_strength)
     /// 正の値は誘引（アトラクタ）、負の値は排斥（ペナルティ場）として機能する
-    pub strength: f32,
+    pub strength: f64,
 }
 
 pub struct Bootstrapper {
@@ -21,7 +21,7 @@ impl Bootstrapper {
         Self { rules: Vec::new() }
     }
 
-    pub fn add_hamiltonian_rule(&mut self, condition_id: i32, target_action: usize, strength: f32) {
+    pub fn add_hamiltonian_rule(&mut self, condition_id: i32, target_action: usize, strength: f64) {
         self.rules.push(HamiltonianRule {
             condition_id,
             target_action,
@@ -29,7 +29,7 @@ impl Bootstrapper {
         });
     }
 
-    pub fn add_penalty_rule(&mut self, condition_id: i32, target_action: usize, strength: f32) {
+    pub fn add_penalty_rule(&mut self, condition_id: i32, target_action: usize, strength: f64) {
         self.rules.push(HamiltonianRule {
             condition_id,
             target_action,
@@ -41,7 +41,7 @@ impl Bootstrapper {
     /// MWSOの各アクションに対する「外場（Resonance Field）」を計算する
     /// 未定義のアクションに対しては 0.0 ではなく、None に相当する値を返せるようにし、
     /// 知識が「ない」状態と「0である」状態を区別する
-    pub fn calculate_resonance_field(&self, active_conditions: &[i32], action_size: usize) -> Vec<Option<f32>> {
+    pub fn calculate_resonance_field(&self, active_conditions: &[i32], action_size: usize) -> Vec<Option<f64>> {
         let mut field = vec![None; action_size];
         for rule in &self.rules {
             if active_conditions.contains(&rule.condition_id) {

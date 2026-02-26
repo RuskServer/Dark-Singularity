@@ -94,23 +94,23 @@ public class Singularity implements AutoCloseable {
     // --- Native Methods ---
     private native long initNativeSingularity(int stateSize, int[] categorySizes);
     private native void destroyNativeSingularity(long handle);
-    private native int selectActionNative(long handle, float[] inputs);
-    private native int[] selectActionsNative(long handle, float[] inputs);
-    private native void learnNative(long handle, float reward);
-    private native float getSystemTemperature(long handle);
-    private native float getGliaActivityNative(long handle);
-    private native float getActionScoreNative(long handle, int action_idx);
-    private native float getFrustration(long handle);
-    private native float getAdrenaline(long handle);
-    private native void setNeuronStateNative(long handle, int idx, float state);
-    private native float[] getNeuronStates(long handle);
-    private native void setExplorationBetaNative(long handle, float beta);
-    private native float getExplorationBetaNative(long handle);
+    private native int selectActionNative(long handle, double[] inputs);
+    private native int[] selectActionsNative(long handle, double[] inputs);
+    private native void learnNative(long handle, double reward);
+    private native double getSystemTemperature(long handle);
+    private native double getGliaActivityNative(long handle);
+    private native double getActionScoreNative(long handle, int action_idx);
+    private native double getFrustration(long handle);
+    private native double getAdrenaline(long handle);
+    private native void setNeuronStateNative(long handle, int idx, double state);
+    private native double[] getNeuronStates(long handle);
+    private native void setExplorationBetaNative(long handle, double beta);
+    private native double getExplorationBetaNative(long handle);
     private native int generateVisualSnapshotNative(long handle, String path);
     private native int saveNativeModel(long handle, String path);
     private native int loadNativeModel(long handle, String path);
     private native void setActiveConditionsNative(long handle, int[] conditionIds);
-    private native void bootstrapNative(long handle, int[] conditionIndices, int[] actionIndices, float[] strengths);
+    private native void bootstrapNative(long handle, int[] conditionIndices, int[] actionIndices, double[] strengths);
 
     /**
      * Initializes a new Singularity instance with dynamic action categories.
@@ -133,7 +133,7 @@ public class Singularity implements AutoCloseable {
     /**
      * Selects the best action for the first defined category.
      */
-    public int selectAction(float[] inputs) {
+    public int selectAction(double[] inputs) {
         return selectActionNative(handle, inputs);
     }
 
@@ -141,34 +141,34 @@ public class Singularity implements AutoCloseable {
      * Selects the best action for EACH defined category.
      * Returns an array where each index corresponds to a category.
      */
-    public int[] selectActions(float[] inputs) {
+    public int[] selectActions(double[] inputs) {
         return selectActionsNative(handle, inputs);
     }
     
     /**
      * Learns from the reward, applying it to the last selected set of actions.
      */
-    public void learn(float reward) {
+    public void learn(double reward) {
         learnNative(handle, reward);
     }
 
-    public float getSystemTemperature() {
+    public double getSystemTemperature() {
         return getSystemTemperature(handle);
     }
     
-    public float getGliaActivity() {
+    public double getGliaActivity() {
         return getGliaActivityNative(handle);
     }
 
-    public float getActionScore(int actionIndex) {
+    public double getActionScore(int actionIndex) {
         return getActionScoreNative(handle, actionIndex);
     }
 
-    public float getFrustration() {
+    public double getFrustration() {
         return getFrustration(handle);
     }
 
-    public float getAdrenaline() {
+    public double getAdrenaline() {
         return getAdrenaline(handle);
     }
 
@@ -178,15 +178,15 @@ public class Singularity implements AutoCloseable {
      * @param idx   Index of the neuron (0-3 for default nodes).
      * @param state Value between 0.0 and 1.0.
      */
-    public void setNeuronState(int idx, float state) {
+    public void setNeuronState(int idx, double state) {
         setNeuronStateNative(handle, idx, state);
     }
 
-    public void setExplorationBeta(float beta) {
+    public void setExplorationBeta(double beta) {
         setExplorationBetaNative(handle, beta);
     }
 
-    public float getExplorationBeta() {
+    public double getExplorationBeta() {
         return getExplorationBetaNative(handle);
     }
 
@@ -201,7 +201,7 @@ public class Singularity implements AutoCloseable {
         return generateVisualSnapshotNative(handle, path);
     }
 
-    public float[] getNeuronStates() {
+    public double[] getNeuronStates() {
         return getNeuronStates(handle);
     }
 
@@ -221,7 +221,7 @@ public class Singularity implements AutoCloseable {
      * @param actionIndices Target action indices to encourage.
      * @param resonanceStrengths Strength of the knowledge field (1.0 = strong, 0.1 = subtle hint).
      */
-    public void registerHamiltonianRules(int[] conditionIds, int[] actionIndices, float[] resonanceStrengths) {
+    public void registerHamiltonianRules(int[] conditionIds, int[] actionIndices, double[] resonanceStrengths) {
         if (conditionIds == null || actionIndices == null || resonanceStrengths == null ||
             conditionIds.length != actionIndices.length || actionIndices.length != resonanceStrengths.length) {
             throw new IllegalArgumentException("Arrays must be non-null and have the same length.");

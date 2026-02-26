@@ -160,9 +160,9 @@ Phase 2: Starting Co-Evolution with High Intellectual Baseline...");
         }
 
         if m % report_interval == 0 {
-            let win_rate_x = (x_wins as f32 / report_interval as f32) * 100.0;
-            let win_rate_o = (o_wins as f32 / report_interval as f32) * 100.0;
-            let invalid_rate = (invalid_moves as f32 / report_interval as f32) * 100.0;
+            let win_rate_x = (x_wins as f64 / report_interval as f64) * 100.0;
+            let win_rate_o = (o_wins as f64 / report_interval as f64) * 100.0;
+            let invalid_rate = (invalid_moves as f64 / report_interval as f64) * 100.0;
             
             println!("Match {:03}-{:03} | X-Win: {:>5.1}% | O-Win: {:>5.1}% | Invalid: {:>5.1}% | X-Rhyd: {:.2} | O-Rhyd: {:.2}", 
                      m - report_interval + 1, m, win_rate_x, win_rate_o, invalid_rate, ai_x.get_resonance_density(), ai_o.get_resonance_density());

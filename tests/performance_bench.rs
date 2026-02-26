@@ -33,7 +33,7 @@ fn benchmark_large_scale_performance() {
     println!("Total cycle (avg): {:?}", total_duration / iterations as u32);
     println!("Target throughput: 1000 Hz (1ms/cycle)");
     
-    let avg_cycle_ms = total_duration.as_secs_f32() * 1000.0 / iterations as f32;
+    let avg_cycle_ms = total_duration.as_secs_f64() * 1000.0 / iterations as f64;
     if avg_cycle_ms > 1.0 {
         println!("WARNING: Performance below target! {:.2} ms/cycle", avg_cycle_ms);
     } else {
