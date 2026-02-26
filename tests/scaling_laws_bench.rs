@@ -185,14 +185,13 @@ fn benchmark_thermal_scaling_laws() {
             // ログスケールで温度を生成
             let temp = t_max * (t_min / t_max).powf(i as f32 / (num_t_points - 1) as f32);
             
-            let state_size = dim / 10;
-            let mut ai = Singularity::new(state_size, vec![action_size]);
+            let mut ai = Singularity::new(20, vec![action_size]);
             let mut converged_at = None;
             let mut success_streak = 0;
-            let max_epochs = 1000;
+            let max_epochs = 3000;
 
             for epoch in 1..=max_epochs {
-                let state_idx = epoch % state_size;
+                let state_idx = epoch % 10;
                 let target_action = (state_idx * 7) % action_size;
                 ai.system_temperature = temp;
                 
