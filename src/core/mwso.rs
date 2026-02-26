@@ -52,8 +52,9 @@ impl MWSO {
             self.memory_psi_real[i] += psi_real[i] * strength;
             self.memory_psi_imag[i] += psi_imag[i] * strength;
         }
-        // Normalize memory wave to prevent explosion
-        self.normalize_memory(1.0);
+        // 次元数に比例した正規化
+        let target = (self.dim as f32).sqrt();
+        self.normalize_memory(target);
     }
 
     fn normalize_memory(&mut self, target_norm: f32) {
@@ -85,7 +86,7 @@ impl MWSO {
         }
     }
 
-    pub fn step_core(&mut self, dt: f32, speed_boost: f32, focus_factor: f32, system_temp: f32) {
+    pub fn step_core(&mut self, dt: f32, speed_boost: f32, focus_factor: f32, system_temp: f32, penalty_field: &[f32]) {
         let solidification = 0.9999 - (0.0005 * (1.0 - focus_factor));
         let effective_dt = dt * (1.0 + speed_boost);
 
@@ -126,11 +127,14 @@ impl MWSO {
             
             // 重力場による「事象の地平線」効果：重力が強いほど忘却（粘性）が消える
             let gravity = self.gravity_field[i];
+            let penalty = penalty_field.get(i).cloned().unwrap_or(0.0);
+            
             let base_viscosity = 0.01 * (1.1 - self.theta[i + self.dim].clamp(-1.0, 1.0).abs());
-            let viscosity = base_viscosity * (1.0 - gravity).max(0.001); 
+            // ペナルティ場による強制減衰（極端なペナルティ場）
+            let viscosity = base_viscosity * (1.0 - gravity).max(0.001) + penalty * 0.5; 
 
-            self.psi_real[i] *= 1.0 - viscosity;
-            self.psi_imag[i] *= 1.0 - viscosity;
+            self.psi_real[i] *= (1.0 - viscosity * effective_dt).max(0.0);
+            self.psi_imag[i] *= (1.0 - viscosity * effective_dt).max(0.0);
         }
 
         // ワームホールによる量子もつれ（位相の同期）
