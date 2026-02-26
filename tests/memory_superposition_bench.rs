@@ -96,7 +96,7 @@ fn benchmark_noisy_recall_efficiency() {
 
     // 3. Step through time and observe recovery
     for step in 1..=10 {
-        ai.mwso.step_core(0.1, 0.0, 1.0, 0.1); // High focus, low temp for recall
+        ai.mwso.step_core(0.1, 0.0, 1.0, 0.1, &vec![0.0; ai.mwso.dim]); // High focus, low temp for recall
         
         let mut current_dot = 0.0;
         for j in 0..dim {
@@ -128,8 +128,8 @@ fn benchmark_memory_vs_non_memory() {
 
     println!("Running 50 steps of dissipation...");
     for _ in 0..50 {
-        ai_mem.mwso.step_core(0.1, 0.0, 0.0, 0.5);
-        ai_none.mwso.step_core(0.1, 0.0, 0.0, 0.5);
+        ai_mem.mwso.step_core(0.1, 0.0, 0.0, 0.5, &vec![0.0; ai_mem.mwso.dim]);
+        ai_none.mwso.step_core(0.1, 0.0, 0.0, 0.5, &vec![0.0; ai_none.mwso.dim]);
     }
 
     // Measure fidelity (overlap) with the original pattern
