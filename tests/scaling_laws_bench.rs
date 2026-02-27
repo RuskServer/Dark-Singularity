@@ -155,23 +155,23 @@ fn benchmark_thermal_phase_transition() {
 #[test]
 fn benchmark_thermal_scaling_laws() {
     println!("\n=== Benchmark 4: Thermal Phase Transition & Scaling Laws ===");
-    println!("Goal: Identify Tc and check scaling laws: Tc ~ D^alpha, tau ~ |T-Tc|^-nu");
-    println!("Metric: IPR (Inverse Participation Ratio) - dimension-invariant localization measure");
+    println!("Goal: Identify Tc and scaling laws via convergence time (tau)");
+    println!("Metric: tau = epochs to converge | Tc = highest T where convergence succeeds\n");
 
     let dims = vec![1024, 2048, 4096];
     let num_t_points = 30;
     let t_max: f32 = 2.0;
     let t_min: f32 = 0.01;
+    let max_epochs = 3000;
+    let success_streak_target = 30;
 
-    let mut scaling_data = Vec::new();
+    let mut scaling_data: Vec<(usize, f32, Vec<(f32, Option<usize>)>)> = Vec::new();
 
     for &dim in &dims {
-        println!("\n--- Dimension D = {} ---", dim);
-        println!("{:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
-            "Temp (T)", "IPR", "Conv Time", "Confidence", "Status");
-        println!("{}", "-".repeat(65));
+        println!("--- Dimension D = {} ---", dim);
+        println!("{:<10} | {:<12} | {:<10}", "Temp (T)", "Conv Time", "Status");
+        println!("{}", "-".repeat(38));
 
-        // Singularity内部の次元計算: (action_size * 64).next_power_of_two()
         let action_size = match dim {
             1024 => 16,
             2048 => 32,
@@ -180,26 +180,23 @@ fn benchmark_thermal_scaling_laws() {
         };
 
         let mut tc_guess = 0.0f32;
-        let mut max_ipr = 0.0f32;
-        let mut dim_results: Vec<(f32, f32, Option<usize>)> = Vec::new();
+        let mut dim_results: Vec<(f32, Option<usize>)> = Vec::new();
 
         for i in 0..num_t_points {
-            // ログスケールで温度を生成
             let temp = t_max * (t_min / t_max).powf(i as f32 / (num_t_points - 1) as f32);
 
             let mut ai = Singularity::new(20, vec![action_size]);
+            ai.temperature_locked = true;
+            ai.system_temperature = temp;
+
             let mut converged_at = None;
             let mut success_streak = 0;
-            let max_epochs = 3000;
 
             for epoch in 1..=max_epochs {
                 let state_idx = epoch % 10;
                 let target_action = (state_idx * 7) % action_size;
 
-                // 温度を固定（内部書き換えを上書き）
-                ai.system_temperature = temp;
                 let actions = ai.select_actions(state_idx);
-
                 if actions[0] as usize == target_action {
                     ai.learn(2.1);
                     success_streak += 1;
@@ -207,94 +204,85 @@ fn benchmark_thermal_scaling_laws() {
                     ai.learn(-1.5);
                     success_streak = 0;
                 }
-                // 学習後に温度を再固定
-                ai.system_temperature = temp;
 
-                if success_streak >= 30 {
+                if success_streak >= success_streak_target {
                     converged_at = Some(epoch);
                     break;
                 }
             }
 
-            // IPR計算（次元不変の局在化指標）
-            let ipr = ai.mwso.calculate_ipr();
-            if ipr > max_ipr { max_ipr = ipr; }
-
-            // Confidence計算
-            let scores = ai.mwso.get_action_scores(
-                0, action_size, 0.0, &vec![0.0; ai.mwso.dim]
-            );
-            let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let sum_score: f32 = scores.iter().sum();
-            let confidence = if sum_score > 0.0 { max_score / sum_score } else { 0.0 };
-
-            // Tc判定：収束成功 かつ IPR > 閾値（局在化が起きてる）の最高温度
-            // IPR=1.0がランダム、大きいほど局在化
-            let ipr_threshold = 2.0; // ランダムより2倍以上局在化してたらOK
-            if converged_at.is_some() && ipr > ipr_threshold {
-                if temp > tc_guess { tc_guess = temp; }
+            // Tc = 収束できた最高温度
+            if converged_at.is_some() && temp > tc_guess {
+                tc_guess = temp;
             }
 
-            let random_baseline = 1.0 / action_size as f32;
-            let relative_confidence = confidence / random_baseline;
-            let status = if relative_confidence > 5.0 { "CRYSTAL" } else { "FLUID" };
             let conv_str = converged_at
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "∞".to_string());
+            let status = if converged_at.is_some() { "OK" } else { "FAIL" };
 
-            println!("{:<10.3} | {:<10.4} | {:<10} | {:<10.4} | {}",
-                temp, ipr, conv_str, confidence, status);
-
-            dim_results.push((temp, ipr, converged_at));
+            println!("{:<10.3} | {:<12} | {}", temp, conv_str, status);
+            dim_results.push((temp, converged_at));
         }
 
-        scaling_data.push((dim, tc_guess, max_ipr, dim_results));
-        println!(">> Summary D={}: Tc ~ {:.3}, Max IPR = {:.4}", dim, tc_guess, max_ipr);
+        println!(">> Tc ~ {:.3}\n", tc_guess);
+        scaling_data.push((dim, tc_guess, dim_results));
     }
 
     // スケーリング解析
-    println!("\n=== Scaling Analysis ===");
-    println!("{:<10} | {:<10} | {:<10}", "Dim (D)", "Tc", "Max IPR");
-    println!("{}", "-".repeat(35));
-    for (dim, tc, max_ipr, _) in &scaling_data {
-        println!("{:<10} | {:<10.3} | {:<10.4}", dim, tc, max_ipr);
+    println!("=== Scaling Analysis ===");
+    println!("{:<10} | {:<10}", "Dim (D)", "Tc");
+    println!("{}", "-".repeat(25));
+    for (dim, tc, _) in &scaling_data {
+        println!("{:<10} | {:<10.3}", dim, tc);
     }
 
     if scaling_data.len() >= 2 {
-        let (d1, tc1, _, _) = scaling_data[0];
-        let (d_last, tc_last, _, _) = scaling_data[scaling_data.len() - 1];
-        if tc1 > 0.0 && tc_last > 0.0 {
-            let alpha = (tc_last / tc1).ln() / (d_last as f32 / d1 as f32).ln();
-            println!("Estimated alpha (Tc ~ D^alpha): {:.4}", alpha);
+        let (d1, tc1, _) = &scaling_data[0];
+        let (d_last, tc_last, _) = &scaling_data[scaling_data.len() - 1];
+        if *tc1 > 0.0 && *tc_last > 0.0 {
+            let alpha = (tc_last / tc1).ln() / (*d_last as f32 / *d1 as f32).ln();
+            println!("Tc ~ D^alpha: alpha = {:.4}", alpha);
         } else {
-            println!("Tc not identified for scaling analysis (try adjusting ipr_threshold)");
-        }
-
-        // IPRスケーリング
-        let (_, _, ipr1, _) = scaling_data[0];
-        let (_, _, ipr_last, _) = scaling_data[scaling_data.len() - 1];
-        if ipr1 > 0.0 && ipr_last > 0.0 {
-            let ipr_alpha = (ipr_last / ipr1).ln() / (d_last as f32 / d1 as f32).ln();
-            println!("IPR scaling (Max IPR ~ D^beta): beta = {:.4}", ipr_alpha);
+            println!("Tc not identified (all temps converge or none do)");
         }
     }
 
-    // 臨界発散チェック
-    println!("\n[Critical Divergence Check: tau ~ |T - Tc|^-nu]");
-    for (dim, tc, _, results) in &scaling_data {
+    // 臨界発散チェック: tau ~ |T - Tc|^-nu
+    println!("\n=== Critical Divergence: tau ~ |T - Tc|^-nu ===");
+    for (dim, tc, results) in &scaling_data {
         if *tc <= 0.0 { continue; }
-        println!("D = {}: Analyzing divergence near Tc={:.3}", dim, tc);
-        let mut found = false;
-        for (t, ipr, conv) in results {
-            let dist = (*t - *tc).abs();
-            if dist < 0.5 && dist > 0.001 {
-                let tau = conv.unwrap_or(3000) as f32;
-                println!("  |T-Tc|={:.3} (T={:.3}, IPR={:.4}) -> tau={}", dist, t, ipr, tau);
-                found = true;
+        println!("D = {} (Tc = {:.3}):", dim, tc);
+        println!("  {:<12} | {:<10} | {:<10}", "|T - Tc|", "T", "tau");
+        println!("  {}", "-".repeat(38));
+
+        // Tc付近のデータだけ抽出
+        let mut near_tc: Vec<(f32, f32, usize)> = results.iter()
+            .filter_map(|(t, conv)| {
+                let dist = (*t - *tc).abs();
+                if dist < 1.0 && dist > 0.001 {
+                    Some((dist, *t, conv.unwrap_or(max_epochs)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        near_tc.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+        for (dist, t, tau) in &near_tc {
+            println!("  {:<12.4} | {:<10.3} | {}", dist, t, tau);
+        }
+
+        // nuの推定（2点から）
+        if near_tc.len() >= 2 {
+            let (dist1, _, tau1) = near_tc[0];
+            let (dist2, _, tau2) = near_tc[near_tc.len() - 1];
+            if dist1 > 0.0 && dist2 > 0.0 && tau1 != tau2 {
+                let nu = -((tau1 as f32 / tau2 as f32).ln()) 
+                          / ((dist1 / dist2).ln());
+                println!("  Estimated nu: {:.4}", nu);
             }
         }
-        if !found {
-            println!("  (No data points near Tc - try wider temperature range)");
-        }
+        println!();
     }
 }

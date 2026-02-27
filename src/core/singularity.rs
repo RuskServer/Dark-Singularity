@@ -18,6 +18,7 @@ pub struct Singularity {
     pub bootstrapper: crate::core::knowledge::Bootstrapper,
     pub active_conditions: Vec<i32>, 
     pub system_temperature: f32,
+    pub temperature_locked: bool,
     pub last_topology_update_temp: f32,
     pub adrenaline: f32,
     pub frustration: f32,
@@ -58,6 +59,7 @@ impl Singularity {
             bootstrapper: crate::core::knowledge::Bootstrapper::new(),
             active_conditions: Vec::new(),
             system_temperature: 0.5,
+            temperature_locked: false,
             last_topology_update_temp: -1.0,
             adrenaline: 0.0,
             frustration: 0.0,
@@ -272,12 +274,14 @@ impl Singularity {
     }
 
     pub fn digest_experience(&mut self, td_error: f32, reward: f32, penalty: f32) {
-        if reward > 1.5 { self.system_temperature = 0.05; }
-        else if reward > 0.0 {
-            let cooling = if self.active_conditions.is_empty() { 0.8 } else { 0.85 };
-            self.system_temperature = (self.system_temperature * cooling - reward * 0.1).max(0.05);
-        } else {
-            self.system_temperature = (self.system_temperature + td_error * 0.2).min(2.0);
+        if !self.temperature_locked {
+            if reward > 1.5 { self.system_temperature = 0.05; }
+            else if reward > 0.0 {
+                let cooling = if self.active_conditions.is_empty() { 0.8 } else { 0.85 };
+                self.system_temperature = (self.system_temperature * cooling - reward * 0.1).max(0.05);
+            } else {
+                self.system_temperature = (self.system_temperature + td_error * 0.2).min(2.0);
+            }
         }
 
         let urgency = ((reward + penalty) * 5.0).min(1.0);
@@ -397,9 +401,10 @@ impl Singularity {
     pub fn save_to_file(&self, path: &str) -> io::Result<()> {
         let mut file = File::create(path)?;
         file.write_all(b"DSYM")?;
-        file.write_all(&12u32.to_le_bytes())?; 
+        file.write_all(&13u32.to_le_bytes())?; 
         file.write_all(&(self.state_size as u32).to_le_bytes())?;
         file.write_all(&self.system_temperature.to_le_bytes())?;
+        file.write_all(&(if self.temperature_locked { 1u32 } else { 0u32 }).to_le_bytes())?;
         file.write_all(&self.adrenaline.to_le_bytes())?;
         file.write_all(&self.frustration.to_le_bytes())?;
         file.write_all(&self.velocity_trust.to_le_bytes())?;
@@ -446,13 +451,18 @@ impl Singularity {
         
         if &buf[0..4] != b"DSYM" { return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid Header")); }
         cur += 4;
-        let _version = read_u32(&mut cur);
+        let version = read_u32(&mut cur);
         let saved_state_size = read_u32(&mut cur) as usize;
         if saved_state_size != self.state_size {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "state_size mismatch"));
         }
 
         self.system_temperature = read_f32(&mut cur);
+        if version >= 13 {
+            self.temperature_locked = read_u32(&mut cur) != 0;
+        } else {
+            self.temperature_locked = false;
+        }
         self.adrenaline = read_f32(&mut cur);
         self.frustration = read_f32(&mut cur);
         self.velocity_trust = read_f32(&mut cur);
