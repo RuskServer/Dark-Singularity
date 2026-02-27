@@ -158,14 +158,15 @@ fn benchmark_thermal_scaling_laws() {
     println!("Goal: Identify Tc and scaling laws via convergence time (tau)");
     println!("Metric: tau = epochs to converge | Tc = highest T where tau <= min_tau * 1.1\n");
 
-    let dims = vec![1024, 2048, 4096];
+    // D=512, 1024, 2048, 4096, 8192 で alpha の再現性を確認
+    let dims = vec![512, 1024, 2048, 4096, 8192];
     let num_t_points = 30;
     let t_max: f32 = 2.0;
     let t_min: f32 = 0.01;
     let max_epochs = 3000;
     let success_streak_target = 30;
 
-    let mut scaling_data: Vec<(usize, f32, Vec<(f32, Option<usize>)>)> = Vec::new();
+    let mut scaling_data: Vec<(usize, f32, f32, Vec<(f32, Option<usize>)>)> = Vec::new();
 
     for &dim in &dims {
         println!("--- Dimension D = {} ---", dim);
@@ -173,9 +174,11 @@ fn benchmark_thermal_scaling_laws() {
         println!("{}", "-".repeat(38));
 
         let action_size = match dim {
+            512  =>  8,
             1024 => 16,
             2048 => 32,
             4096 => 64,
+            8192 => 128,
             _ => 16,
         };
 
@@ -219,13 +222,12 @@ fn benchmark_thermal_scaling_laws() {
             dim_results.push((temp, converged_at));
         }
 
-        // 収束時間の最小値を求める
+        // min_tau と Tc を計算
         let min_tau = dim_results.iter()
             .filter_map(|(_, conv)| *conv)
             .min()
             .unwrap_or(max_epochs);
 
-        // Tc = min_tau * 1.1以内になる最高温度
         let tc_guess = dim_results.iter()
             .filter_map(|(t, conv)| {
                 conv.filter(|&tau| tau <= (min_tau as f32 * 1.1) as usize)
@@ -234,86 +236,119 @@ fn benchmark_thermal_scaling_laws() {
             .fold(0.0f32, f32::max);
 
         println!(">> min_tau = {}, Tc ~ {:.3}\n", min_tau, tc_guess);
-        scaling_data.push((dim, tc_guess, dim_results));
+        scaling_data.push((dim, tc_guess, min_tau as f32, dim_results));
     }
 
     // スケーリング解析
     println!("=== Scaling Analysis ===");
     println!("{:<10} | {:<10} | {:<10}", "Dim (D)", "Tc", "min_tau");
     println!("{}", "-".repeat(35));
-    for (dim, tc, results) in &scaling_data {
-        let min_tau = results.iter()
-            .filter_map(|(_, conv)| *conv)
-            .min()
-            .unwrap_or(max_epochs);
+    for (dim, tc, min_tau, _) in &scaling_data {
         println!("{:<10} | {:<10.3} | {:<10}", dim, tc, min_tau);
     }
 
-    if scaling_data.len() >= 2 {
-        let (d1, tc1, _) = &scaling_data[0];
-        let (d_last, tc_last, _) = &scaling_data[scaling_data.len() - 1];
-        if *tc1 > 0.0 && *tc_last > 0.0 {
-            let alpha = (tc_last / tc1).ln() / (*d_last as f32 / *d1 as f32).ln();
-            println!("Tc ~ D^alpha: alpha = {:.4}", alpha);
-        } else {
-            println!("Tc not identified");
+    // Tc ~ D^alpha を全点最小二乗法で推定
+    println!("\n--- Tc ~ D^alpha (least squares) ---");
+    let valid: Vec<(f32, f32)> = scaling_data.iter()
+        .filter(|(_, tc, _, _)| *tc > 0.0)
+        .map(|(d, tc, _, _)| ((*d as f32).ln(), tc.ln()))
+        .collect();
+
+    if valid.len() >= 2 {
+        let n = valid.len() as f32;
+        let sum_x: f32 = valid.iter().map(|(x, _)| x).sum();
+        let sum_y: f32 = valid.iter().map(|(_, y)| y).sum();
+        let sum_xx: f32 = valid.iter().map(|(x, _)| x * x).sum();
+        let sum_xy: f32 = valid.iter().map(|(x, y)| x * y).sum();
+        let alpha = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+        let intercept = (sum_y - alpha * sum_x) / n;
+        println!("alpha = {:.4} (Tc ~ D^alpha)", alpha);
+        println!("intercept = {:.4} (Tc = e^intercept * D^alpha)", intercept);
+
+        // 各点での予測値と実測値の比較
+        println!("\n{:<10} | {:<10} | {:<10} | {:<10}", "Dim (D)", "Tc (実測)", "Tc (予測)", "誤差%");
+        println!("{}", "-".repeat(45));
+        for (dim, tc, _, _) in &scaling_data {
+            if *tc <= 0.0 { continue; }
+            let tc_pred = intercept.exp() * (*dim as f32).powf(alpha);
+            let error = (tc - tc_pred).abs() / tc * 100.0;
+            println!("{:<10} | {:<10.3} | {:<10.3} | {:<10.1}", dim, tc, tc_pred, error);
         }
     }
 
-    // 臨界発散チェック: tau ~ |T - Tc|^-nu
-    // T > Tc の点だけを使う（高温側のみ）
-    println!("\n=== Critical Divergence: tau ~ |T - Tc|^-nu (T > Tc only) ===");
-    for (dim, tc, results) in &scaling_data {
-        if *tc <= 0.0 { continue; }
-        println!("D = {} (Tc = {:.3}):", dim, tc);
-        println!("  {:<12} | {:<10} | {:<10} | {:<12}", "|T - Tc|", "T", "tau", "ln(tau)");
-        println!("  {}", "-".repeat(52));
+    // min_tau ~ D^beta を最小二乗法で推定
+    println!("\n--- min_tau ~ D^beta (least squares) ---");
+    let valid_tau: Vec<(f32, f32)> = scaling_data.iter()
+        .filter(|(_, _, min_tau, _)| *min_tau > 0.0)
+        .map(|(d, _, min_tau, _)| ((*d as f32).ln(), min_tau.ln()))
+        .collect();
 
-        // T > Tc の点だけ抽出してソート
-        let mut above_tc: Vec<(f32, f32, usize)> = results.iter()
-            .filter_map(|(t, conv)| {
-                if *t > *tc {
-                    Some((*t - *tc, *t, conv.unwrap_or(max_epochs)))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        above_tc.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    if valid_tau.len() >= 2 {
+        let n = valid_tau.len() as f32;
+        let sum_x: f32 = valid_tau.iter().map(|(x, _)| x).sum();
+        let sum_y: f32 = valid_tau.iter().map(|(_, y)| y).sum();
+        let sum_xx: f32 = valid_tau.iter().map(|(x, _)| x * x).sum();
+        let sum_xy: f32 = valid_tau.iter().map(|(x, y)| x * y).sum();
+        let beta = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+        println!("beta = {:.4} (min_tau ~ D^beta)", beta);
 
-        for (dist, t, tau) in &above_tc {
-            println!("  {:<12.4} | {:<10.3} | {:<10} | {:<12.4}",
-                dist, t, tau, (*tau as f32).ln());
+        println!("\n{:<10} | {:<10} | {:<10} | {:<10}", "Dim (D)", "tau (実測)", "tau (予測)", "誤差%");
+        println!("{}", "-".repeat(45));
+        let intercept_tau = (sum_y - beta * sum_x) / n;
+        for (dim, _, min_tau, _) in &scaling_data {
+            let tau_pred = intercept_tau.exp() * (*dim as f32).powf(beta);
+            let error = (min_tau - tau_pred).abs() / min_tau * 100.0;
+            println!("{:<10} | {:<10.0} | {:<10.0} | {:<10.1}", dim, min_tau, tau_pred, error);
         }
+    }
 
-        // nu推定：log(tau) vs log(|T-Tc|) の傾きから
-        // tau ~ |T-Tc|^-nu → log(tau) = -nu * log(|T-Tc|) + const
-        // 最小二乗法で傾きを求める
+    // 臨界発散チェック（T > Tc のみ、最小二乗法）
+    println!("\n=== Critical Divergence: tau ~ |T - Tc|^-nu (T > Tc only) ===");
+    for (dim, tc, _, results) in &scaling_data {
+        if *tc <= 0.0 { continue; }
+
+        let above_tc: Vec<(f32, f32, usize)> = {
+            let mut v: Vec<(f32, f32, usize)> = results.iter()
+                .filter_map(|(t, conv)| {
+                    if *t > *tc {
+                        Some((*t - *tc, *t, conv.unwrap_or(max_epochs)))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            v
+        };
+
+        println!("D = {} (Tc = {:.3}, {} points above Tc):", dim, tc, above_tc.len());
+
         if above_tc.len() >= 3 {
+            println!("  {:<12} | {:<10} | {:<10}", "|T - Tc|", "T", "tau");
+            println!("  {}", "-".repeat(38));
+            for (dist, t, tau) in &above_tc {
+                println!("  {:<12.4} | {:<10.3} | {}", dist, t, tau);
+            }
+
             let n = above_tc.len() as f32;
-            let log_dist: Vec<f32> = above_tc.iter()
-                .map(|(dist, _, _)| dist.ln())
-                .collect();
-            let log_tau: Vec<f32> = above_tc.iter()
-                .map(|(_, _, tau)| (*tau as f32).ln())
-                .collect();
+            let log_dist: Vec<f32> = above_tc.iter().map(|(d, _, _)| d.ln()).collect();
+            let log_tau: Vec<f32> = above_tc.iter().map(|(_, _, tau)| (*tau as f32).ln()).collect();
 
             let sum_x: f32 = log_dist.iter().sum();
             let sum_y: f32 = log_tau.iter().sum();
             let sum_xx: f32 = log_dist.iter().map(|x| x * x).sum();
             let sum_xy: f32 = log_dist.iter().zip(log_tau.iter()).map(|(x, y)| x * y).sum();
-
             let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
-            let nu = -slope; // tau ~ |T-Tc|^-nu なので傾きの符号を反転
+            let nu = -slope;
 
-            println!("  Estimated nu (least squares, {} points): {:.4}", above_tc.len(), nu);
-            if nu > 0.0 {
-                println!("  → 臨界発散あり (nu > 0)");
-            } else {
-                println!("  → 臨界発散なし (nu <= 0) - クロスオーバー系の可能性");
-            }
+            println!("  nu = {:.4} → {}",
+                nu,
+                if nu > 0.1 { "臨界発散あり" }
+                else if nu > 0.0 { "微弱な発散（クロスオーバーの可能性）" }
+                else { "臨界発散なし（クロスオーバー系）" }
+            );
         } else {
-            println!("  (T > Tc の点が少なすぎる - t_maxを上げるか温度範囲を広げる)");
+            println!("  (T > Tc の点が不足)");
         }
         println!();
     }
