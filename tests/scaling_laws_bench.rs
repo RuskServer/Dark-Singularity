@@ -225,7 +225,7 @@ fn benchmark_thermal_scaling_laws() {
             .min()
             .unwrap_or(max_epochs);
 
-        // 最小値の1.1倍以内になる最高温度をTcとする
+        // Tc = min_tau * 1.1以内になる最高温度
         let tc_guess = dim_results.iter()
             .filter_map(|(t, conv)| {
                 conv.filter(|&tau| tau <= (min_tau as f32 * 1.1) as usize)
@@ -261,38 +261,59 @@ fn benchmark_thermal_scaling_laws() {
     }
 
     // 臨界発散チェック: tau ~ |T - Tc|^-nu
-    println!("\n=== Critical Divergence: tau ~ |T - Tc|^-nu ===");
+    // T > Tc の点だけを使う（高温側のみ）
+    println!("\n=== Critical Divergence: tau ~ |T - Tc|^-nu (T > Tc only) ===");
     for (dim, tc, results) in &scaling_data {
         if *tc <= 0.0 { continue; }
         println!("D = {} (Tc = {:.3}):", dim, tc);
-        println!("  {:<12} | {:<10} | {:<10}", "|T - Tc|", "T", "tau");
-        println!("  {}", "-".repeat(38));
+        println!("  {:<12} | {:<10} | {:<10} | {:<12}", "|T - Tc|", "T", "tau", "ln(tau)");
+        println!("  {}", "-".repeat(52));
 
-        let mut near_tc: Vec<(f32, f32, usize)> = results.iter()
+        // T > Tc の点だけ抽出してソート
+        let mut above_tc: Vec<(f32, f32, usize)> = results.iter()
             .filter_map(|(t, conv)| {
-                let dist = (*t - *tc).abs();
-                if dist < 1.0 && dist > 0.001 {
-                    Some((dist, *t, conv.unwrap_or(max_epochs)))
+                if *t > *tc {
+                    Some((*t - *tc, *t, conv.unwrap_or(max_epochs)))
                 } else {
                     None
                 }
             })
             .collect();
-        near_tc.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        above_tc.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-        for (dist, t, tau) in &near_tc {
-            println!("  {:<12.4} | {:<10.3} | {}", dist, t, tau);
+        for (dist, t, tau) in &above_tc {
+            println!("  {:<12.4} | {:<10.3} | {:<10} | {:<12.4}",
+                dist, t, tau, (*tau as f32).ln());
         }
 
-        // nuの推定
-        if near_tc.len() >= 2 {
-            let (dist1, _, tau1) = near_tc[0];
-            let (dist2, _, tau2) = near_tc[near_tc.len() - 1];
-            if dist1 > 0.0 && dist2 > 0.0 && tau1 != tau2 {
-                let nu = -((tau1 as f32 / tau2 as f32).ln())
-                          / ((dist1 / dist2).ln());
-                println!("  Estimated nu: {:.4}", nu);
+        // nu推定：log(tau) vs log(|T-Tc|) の傾きから
+        // tau ~ |T-Tc|^-nu → log(tau) = -nu * log(|T-Tc|) + const
+        // 最小二乗法で傾きを求める
+        if above_tc.len() >= 3 {
+            let n = above_tc.len() as f32;
+            let log_dist: Vec<f32> = above_tc.iter()
+                .map(|(dist, _, _)| dist.ln())
+                .collect();
+            let log_tau: Vec<f32> = above_tc.iter()
+                .map(|(_, _, tau)| (*tau as f32).ln())
+                .collect();
+
+            let sum_x: f32 = log_dist.iter().sum();
+            let sum_y: f32 = log_tau.iter().sum();
+            let sum_xx: f32 = log_dist.iter().map(|x| x * x).sum();
+            let sum_xy: f32 = log_dist.iter().zip(log_tau.iter()).map(|(x, y)| x * y).sum();
+
+            let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+            let nu = -slope; // tau ~ |T-Tc|^-nu なので傾きの符号を反転
+
+            println!("  Estimated nu (least squares, {} points): {:.4}", above_tc.len(), nu);
+            if nu > 0.0 {
+                println!("  → 臨界発散あり (nu > 0)");
+            } else {
+                println!("  → 臨界発散なし (nu <= 0) - クロスオーバー系の可能性");
             }
+        } else {
+            println!("  (T > Tc の点が少なすぎる - t_maxを上げるか温度範囲を広げる)");
         }
         println!();
     }
