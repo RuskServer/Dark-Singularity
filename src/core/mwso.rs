@@ -282,14 +282,31 @@ impl MWSO {
 
     pub fn calculate_rhyd(&self) -> f32 {
         let mut rd = 0.0;
+        let mut active_components = 0.0;
         for i in 0..self.dim {
             let energy_sq = self.psi_real[i].powi(2) + self.psi_imag[i].powi(2);
             if energy_sq > 0.001 {
                 let phase = self.psi_imag[i].atan2(self.psi_real[i]);
-                let gravity_boost = 1.0 + self.gravity_field[i] * 10.0;
-                rd += energy_sq * (phase.cos() + 1.0) / 2.0 * gravity_boost;
+                rd += energy_sq * (phase.cos() + 1.0) / 2.0;
+                active_components += 1.0;
             }
         }
-        rd * 100.0 / self.dim as f32
+        rd * (active_components / self.dim as f32) * 100.0
+    }
+
+    pub fn calculate_ipr(&self) -> f32 {
+        let mut ipr = 0.0;
+        let mut norm_sq = 0.0;
+        for i in 0..self.dim {
+            let e = self.psi_real[i].powi(2) + self.psi_imag[i].powi(2);
+            ipr += e * e;
+            norm_sq += e;
+        }
+        // 正規化してD不変にする
+        if norm_sq > 1e-10 {
+            ipr / (norm_sq * norm_sq) * self.dim as f32
+        } else {
+            0.0
+        }
     }
 }
