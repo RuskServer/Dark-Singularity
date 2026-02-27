@@ -235,7 +235,9 @@ fn benchmark_thermal_scaling_laws() {
                 if temp > tc_guess { tc_guess = temp; }
             }
 
-            let status = if confidence > 0.90 { "CRYSTAL" } else { "FLUID" };
+            let crystal_threshold = (1.0 / action_size as f32).max(0.1) * 3.0;
+
+            let status = if confidence > crystal_threshold { "CRYSTAL" } else { "FLUID" };
             let conv_str = converged_at
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "∞".to_string());
