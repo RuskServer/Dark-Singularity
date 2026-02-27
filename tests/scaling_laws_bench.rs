@@ -156,7 +156,7 @@ fn benchmark_thermal_phase_transition() {
 fn benchmark_thermal_scaling_laws() {
     println!("\n=== Benchmark 4: Thermal Phase Transition & Scaling Laws ===");
     println!("Goal: Identify Tc and scaling laws via convergence time (tau)");
-    println!("Metric: tau = epochs to converge | Tc = highest T where convergence succeeds\n");
+    println!("Metric: tau = epochs to converge | Tc = highest T where tau <= min_tau * 1.1\n");
 
     let dims = vec![1024, 2048, 4096];
     let num_t_points = 30;
@@ -179,7 +179,6 @@ fn benchmark_thermal_scaling_laws() {
             _ => 16,
         };
 
-        let mut tc_guess = 0.0f32;
         let mut dim_results: Vec<(f32, Option<usize>)> = Vec::new();
 
         for i in 0..num_t_points {
@@ -211,11 +210,6 @@ fn benchmark_thermal_scaling_laws() {
                 }
             }
 
-            // Tc = 収束できた最高温度
-            if converged_at.is_some() && temp > tc_guess {
-                tc_guess = temp;
-            }
-
             let conv_str = converged_at
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "∞".to_string());
@@ -225,16 +219,34 @@ fn benchmark_thermal_scaling_laws() {
             dim_results.push((temp, converged_at));
         }
 
-        println!(">> Tc ~ {:.3}\n", tc_guess);
+        // 収束時間の最小値を求める
+        let min_tau = dim_results.iter()
+            .filter_map(|(_, conv)| *conv)
+            .min()
+            .unwrap_or(max_epochs);
+
+        // 最小値の1.1倍以内になる最高温度をTcとする
+        let tc_guess = dim_results.iter()
+            .filter_map(|(t, conv)| {
+                conv.filter(|&tau| tau <= (min_tau as f32 * 1.1) as usize)
+                    .map(|_| *t)
+            })
+            .fold(0.0f32, f32::max);
+
+        println!(">> min_tau = {}, Tc ~ {:.3}\n", min_tau, tc_guess);
         scaling_data.push((dim, tc_guess, dim_results));
     }
 
     // スケーリング解析
     println!("=== Scaling Analysis ===");
-    println!("{:<10} | {:<10}", "Dim (D)", "Tc");
-    println!("{}", "-".repeat(25));
-    for (dim, tc, _) in &scaling_data {
-        println!("{:<10} | {:<10.3}", dim, tc);
+    println!("{:<10} | {:<10} | {:<10}", "Dim (D)", "Tc", "min_tau");
+    println!("{}", "-".repeat(35));
+    for (dim, tc, results) in &scaling_data {
+        let min_tau = results.iter()
+            .filter_map(|(_, conv)| *conv)
+            .min()
+            .unwrap_or(max_epochs);
+        println!("{:<10} | {:<10.3} | {:<10}", dim, tc, min_tau);
     }
 
     if scaling_data.len() >= 2 {
@@ -244,7 +256,7 @@ fn benchmark_thermal_scaling_laws() {
             let alpha = (tc_last / tc1).ln() / (*d_last as f32 / *d1 as f32).ln();
             println!("Tc ~ D^alpha: alpha = {:.4}", alpha);
         } else {
-            println!("Tc not identified (all temps converge or none do)");
+            println!("Tc not identified");
         }
     }
 
@@ -256,7 +268,6 @@ fn benchmark_thermal_scaling_laws() {
         println!("  {:<12} | {:<10} | {:<10}", "|T - Tc|", "T", "tau");
         println!("  {}", "-".repeat(38));
 
-        // Tc付近のデータだけ抽出
         let mut near_tc: Vec<(f32, f32, usize)> = results.iter()
             .filter_map(|(t, conv)| {
                 let dist = (*t - *tc).abs();
@@ -273,12 +284,12 @@ fn benchmark_thermal_scaling_laws() {
             println!("  {:<12.4} | {:<10.3} | {}", dist, t, tau);
         }
 
-        // nuの推定（2点から）
+        // nuの推定
         if near_tc.len() >= 2 {
             let (dist1, _, tau1) = near_tc[0];
             let (dist2, _, tau2) = near_tc[near_tc.len() - 1];
             if dist1 > 0.0 && dist2 > 0.0 && tau1 != tau2 {
-                let nu = -((tau1 as f32 / tau2 as f32).ln()) 
+                let nu = -((tau1 as f32 / tau2 as f32).ln())
                           / ((dist1 / dist2).ln());
                 println!("  Estimated nu: {:.4}", nu);
             }
