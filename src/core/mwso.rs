@@ -17,6 +17,7 @@ pub struct MWSO {
     pub memory_psi_imag: Vec<f64>,
     
     pub dim: usize,
+    pub rng_seed: u64,
 }
 
 impl MWSO {
@@ -35,8 +36,14 @@ impl MWSO {
             entanglements: Vec::new(),
             memory_psi_real: vec![0.0; dim],
             memory_psi_imag: vec![0.0; dim],
-            dim 
+            dim,
+            rng_seed: 0xDEADBEEF,
         }
+    }
+
+    pub fn next_rng(&mut self) -> f32 {
+        self.rng_seed = self.rng_seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        ((self.rng_seed >> 32) as u32) as f32 / u32::MAX as f32
     }
 
     pub fn add_wormhole(&mut self, from: usize, to: usize, strength: f32) {
@@ -128,10 +135,10 @@ impl MWSO {
             // 重力場による「事象の地平線」効果：重力が強いほど忘却（粘性）が消える
             let gravity = self.gravity_field[i];
             let penalty = penalty_field.get(i).cloned().unwrap_or(0.0);
-            
             let base_viscosity = 0.01 * (1.1 - self.theta[i + self.dim].clamp(-1.0, 1.0).abs());
-            // ペナルティ場による強制減衰（極端なペナルティ場）
-            let viscosity = base_viscosity * (1.0 - gravity).max(0.001) + penalty * 0.5; 
+            
+            // 粘性計算の緩和：高次元での停滞を防いで、照射エネルギーを深部まで届ける
+            let viscosity = base_viscosity * (1.0 - gravity).max(0.001f32) + penalty * 0.1; 
 
             self.psi_real[i] *= (1.0 - viscosity * effective_dt).max(0.0);
             self.psi_imag[i] *= (1.0 - viscosity * effective_dt).max(0.0);
@@ -159,7 +166,7 @@ impl MWSO {
         }
     }
 
-    pub fn get_action_scores(&self, offset: usize, size: usize, exploration_noise: f32, penalty_field: &[f32]) -> Vec<f32> {
+    pub fn get_action_scores(&mut self, offset: usize, size: usize, exploration_noise: f32, penalty_field: &[f32]) -> Vec<f32> {
         let bin_per_action = self.dim / size;
         let mut scores = Vec::with_capacity(size);
         for i in 0..size {
@@ -176,11 +183,9 @@ impl MWSO {
 
             score -= total_penalty * 0.5;
             
-            score = (score * 1.5).exp().min(1e10);
+            // Linear score instead of exponential for stability
             if exploration_noise > 0.0 {
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-                score += (((seed + i as u128) % 1000) as f32 / 1000.0 - 0.5) * exploration_noise;
+                score += (self.next_rng() - 0.5) * exploration_noise;
             }
             scores.push(score);
         }
@@ -188,8 +193,10 @@ impl MWSO {
     }
 
     pub fn adapt(&mut self, reward: f32, last_actions: &[usize], system_temp: f32, action_size: usize) {
+        // 高次元ほど学習を慎重に（勾配爆発的な位相変化を防ぐ）
+        let dim_factor = (1024.0 / self.dim as f32).sqrt().min(1.0);
         let annealing = (system_temp * 0.5).clamp(0.1, 1.0);
-        let base_lr = 1.2 * annealing; 
+        let base_lr = 1.2 * annealing * dim_factor; 
         let bin_per_action = self.dim / action_size;
         let t_len = self.theta.len();
 
@@ -200,7 +207,7 @@ impl MWSO {
                 // 強力な報酬：重力場を形成（ブラックホール化）
                 for j in 0..bin_per_action {
                     let idx = (base_idx + j) % self.dim;
-                    self.gravity_field[idx] = (self.gravity_field[idx] + 0.1).min(1.0);
+                    self.gravity_field[idx] = (self.gravity_field[idx] + 0.1 * dim_factor).min(1.0);
                 }
                 
                 // --- Imprint Memory on Success ---
@@ -218,7 +225,7 @@ impl MWSO {
                 }
             }
             for neighborhood in -1..=1 {
-                let weight = if neighborhood == 0 { 1.0 } else { 0.2 };
+                let weight = if neighborhood == 0 { 1.0 } else { 0.1 }; // Restore to 0.1
                 let target_action = (action_idx as i32 + neighborhood).rem_euclid(action_size as i32) as usize;
                 let lr = base_lr * weight;
                 let n_base = target_action * bin_per_action;
@@ -264,11 +271,23 @@ impl MWSO {
     }
 
     pub fn inject_exploration_noise(&mut self, strength: f32) {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         for i in 0..self.dim {
-            let noise = ((seed % (i as u128 + 1)) as f32 / (i as f32 + 1.0)).sin();
+            let noise = (self.next_rng() - 0.5) * 2.0;
             self.psi_real[i] += noise * strength;
+        }
+    }
+
+    /// 特定のアクション領域（Bin）にエネルギーを集中照射し、探索を促す
+    pub fn illuminate_bin(&mut self, action_idx: usize, action_size: usize, strength: f32) {
+        let bin_per_action = self.dim / action_size;
+        let start_idx = (action_idx * bin_per_action) % self.dim;
+        
+        for i in 0..bin_per_action {
+            let idx = (start_idx + i) % self.dim;
+            let noise = (self.next_rng() - 0.5) * 0.2;
+            // 位相をある程度揃えて注入することで、ノイズよりも強い「指向性」を持たせる
+            self.psi_real[idx] += (1.0 + noise) * strength;
+            self.psi_imag[idx] += noise * strength;
         }
     }
 

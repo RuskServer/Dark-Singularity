@@ -39,6 +39,8 @@ pub struct Singularity {
     pub penalty_matrix: Vec<f32>, 
 
     pub exploration_beta: f32,    
+    pub exploration_timer: usize,
+    pub current_focus_action: usize,
 
     pub idx_aggression: usize,
     pub idx_fear: usize,
@@ -79,6 +81,8 @@ impl Singularity {
             learned_rules: Vec::new(),
             penalty_matrix: vec![0.0; state_size * required_dim],
             exploration_beta: 0.1, 
+            exploration_timer: 0,
+            current_focus_action: 0,
             idx_aggression: 0,
             idx_fear: 1,
             idx_tactical: 2,
@@ -132,9 +136,47 @@ impl Singularity {
         if self.input_history.len() > 4 { self.input_history.pop_front(); }
         // ------------------------------------------
 
-        if self.active_conditions.is_empty() {
-            let noise_strength = (self.system_temperature * 0.1).clamp(0.05, 0.3);
+        // Noise Injection: Only when temperature is high and confidence is low
+        let ipr = self.mwso.calculate_ipr();
+        let confidence_factor = (10.0 / ipr.max(10.0)).clamp(0.0, 1.0); // 1.0 when dispersed, 0.0 when focused
+        
+        if self.system_temperature > 0.6 && confidence_factor > 0.5 {
+            let noise_strength = (self.system_temperature.powi(2) * 0.1).clamp(0.0, 0.3);
             self.mwso.inject_exploration_noise(noise_strength);
+        }
+        
+        // --- Focused Irradiation (Refined: Promising Focus) ---
+        if self.system_temperature > 0.3 {
+            if self.exploration_timer == 0 {
+                // Preview scores without noise to find where the wave is gravitating
+                let preview_scores = self.mwso.get_action_scores(0, self.action_size, 0.0, &current_penalty_field);
+                
+                // Find top candidates (best or second best)
+                let mut best_idx = 0;
+                let mut second_idx = 0;
+                let mut max_s = -f32::INFINITY;
+                let mut second_s = -f32::INFINITY;
+                
+                for (i, &s) in preview_scores.iter().enumerate() {
+                    if s > max_s {
+                        second_s = max_s; second_idx = best_idx;
+                        max_s = s; best_idx = i;
+                    } else if s > second_s {
+                        second_s = s; second_idx = i;
+                    }
+                }
+                
+                // 70% chance to focus on the leader, 30% on the runner-up to break local optima
+                self.current_focus_action = if self.mwso.next_rng() < 0.7 { best_idx } else { second_idx };
+                self.exploration_timer = 15; 
+            }
+            
+            // Dimension-aware strength: higher dims need a bigger "kick" to collapse
+            let dim_boost = (self.mwso.dim as f32 / 1024.0).sqrt();
+            let strength = 0.1 * self.system_temperature * dim_boost; 
+            
+            self.mwso.illuminate_bin(self.current_focus_action, self.action_size, strength);
+            self.exploration_timer -= 1;
         }
         
         self.mwso.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
@@ -166,7 +208,8 @@ impl Singularity {
     }
 
     fn get_best_in_range(&mut self, offset: usize, size: usize, penalty_field: &[f32]) -> usize {
-        let noise = if self.active_conditions.is_empty() { 0.2 } else { 0.0 };
+        // Squared temperature for faster jitter reduction
+        let noise = (self.system_temperature.powi(2) * 0.2).clamp(0.001, 0.5);
         let mwso_scores = self.mwso.get_action_scores(offset, size, noise, penalty_field);
         
         let mut best = 0;
@@ -178,33 +221,39 @@ impl Singularity {
             let mut knowledge_field = 0.0;
             if let Some(s) = active_resonance[offset + i] {
                 if s < -0.9 { // 強力なペナルティ（無限大に近い排斥）
-                    knowledge_field = -1e6; 
+                    knowledge_field = -100.0; 
                 } else {
-                    knowledge_field = s * 30.0;
+                    knowledge_field = s * 5.0;
                 }
             }
             
-            let base_score = mwso_scores[i] - self.fatigue_map[offset + i] * 0.5;
+            let mwso_component = mwso_scores[i];
+            
             let internal_field = self.learned_rules.iter()
                 .find(|r| r.0 == self.last_state_idx && r.1 == offset + i)
-                .map(|r| (r.2 as f32 * 2.0).min(5.0)).unwrap_or(0.0);
+                .map(|r| (r.2 as f32 * 1.0).min(5.0)).unwrap_or(0.0);
 
-            // 現在の入力状態に合致するルールがあれば、それを「動機」として加算
             if let Some(rule) = self.bootstrapper.rules.iter().find(|r| r.condition_id == self.last_state_idx as i32 && r.target_action == offset + i) {
-                knowledge_field += rule.strength * 20.0;
+                knowledge_field += rule.strength * 5.0;
             }
 
             let neuron_boost = match i {
-                0 => self.nodes[self.idx_aggression].state * 0.4,
-                1 => self.nodes[self.idx_fear].state * 0.2,
+                0 => self.nodes[self.idx_aggression].state * 0.5,
+                1 => self.nodes[self.idx_fear].state * 0.3,
                 _ => 0.0,
             };
             
-            let momentum_boost = self.action_momentum[offset + i] * 1.5;
+            let momentum_boost = self.action_momentum[offset + i] * 1.0;
+            let fatigue_penalty = self.fatigue_map[offset + i] * 2.0;
             
-            let total_score = base_score + internal_field + knowledge_field + neuron_boost + momentum_boost + (self.morale * 0.1);
+            let total_score = mwso_component + internal_field + knowledge_field + neuron_boost + momentum_boost - fatigue_penalty + (self.morale * 0.1);
             
-            let sharp_factor = (10.0 - self.system_temperature * 4.0).clamp(1.0, 10.0);
+            // 次元数に応じて相転移の「鋭さ」を調整
+            // 高次元(2048+)では相転移を緩やかにし、誤認による収束を防ぐ
+            let dim_stability_factor = (1024.0 / self.mwso.dim as f32).sqrt().min(1.0);
+            let base_sharpness = 8.0 * dim_stability_factor; // Peak reduced from 10 to 8
+            let sharp_factor = (base_sharpness - self.system_temperature * (3.0 * dim_stability_factor)).clamp(1.2, base_sharpness);
+            
             let collapsed_score = (total_score + 10.0).max(0.1).powf(sharp_factor) + (i as f32 * 0.01).sin() * 0.001;
 
             if collapsed_score > max_score {
@@ -227,6 +276,7 @@ impl Singularity {
             if self.active_conditions.is_empty() {
                 let state = exp.state_idx;
                 let action = exp.actions[0];
+                let dim_stability = (1024.0 / self.mwso.dim as f32).sqrt().min(1.0);
 
                 if discounted_reward > 1.2 {
                     if let Some(rule) = self.learned_rules.iter_mut().find(|r| r.0 == state && r.1 == action) {
@@ -235,11 +285,14 @@ impl Singularity {
                         self.learned_rules.push((state, action, 1));
                     }
                     let start = state * self.mwso.dim + action * bin_per_action;
-                    for j in 0..bin_per_action { self.penalty_matrix[start + j] *= 0.5; }
+                    // 成功時にペナルティを消す力も次元数で調整
+                    for j in 0..bin_per_action { self.penalty_matrix[start + j] *= 0.5 + 0.4 * (1.0 - dim_stability); }
                 } else if discounted_reward < 0.0 {
                     let start = state * self.mwso.dim + action * bin_per_action;
                     for j in 0..bin_per_action { 
-                        self.penalty_matrix[start + j] = (self.penalty_matrix[start + j] + discounted_reward.abs() * 2.0).min(10.0); 
+                        // 失敗時のペナルティ注入を次元数に応じて薄める
+                        let p_add = (discounted_reward.abs() * 2.0 * dim_stability).min(10.0);
+                        self.penalty_matrix[start + j] = (self.penalty_matrix[start + j] + p_add).min(10.0); 
                     }
                 }
             }
@@ -275,12 +328,20 @@ impl Singularity {
 
     pub fn digest_experience(&mut self, td_error: f32, reward: f32, penalty: f32) {
         if !self.temperature_locked {
-            if reward > 1.5 { self.system_temperature = 0.05; }
-            else if reward > 0.0 {
-                let cooling = if self.active_conditions.is_empty() { 0.8 } else { 0.85 };
-                self.system_temperature = (self.system_temperature * cooling - reward * 0.1).max(0.05);
+            // 高次元ほど「なまし（Annealing）」を長く保つ
+            let dim_inertia = (self.mwso.dim as f32 / 1024.0).sqrt().max(1.0);
+            
+            if reward > 0.0 {
+                let cooling_rate = (0.8 + (reward * 0.1).min(0.15)) / dim_inertia; 
+                self.system_temperature = (self.system_temperature * (1.0 - cooling_rate * 0.2) - reward * 0.05 / dim_inertia).max(0.02);
             } else {
-                self.system_temperature = (self.system_temperature + td_error * 0.2).min(2.0);
+                // IPR（波動の集中度）をチェック。集中している(IPRが低い)ほど、失敗に動じない。
+                let ipr = self.mwso.calculate_ipr();
+                let confidence_guard = (1.0 - (10.0 / ipr.max(10.0))).clamp(0.1, 1.0);
+                
+                // 確信度が高い（IPRが低い）時は、加熱（温度上昇）を最大 90% カットする
+                let heating = (td_error * 0.3 / dim_inertia).min(1.0) * confidence_guard; 
+                self.system_temperature = (self.system_temperature + heating).min(2.0);
             }
         }
 
