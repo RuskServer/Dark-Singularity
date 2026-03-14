@@ -279,9 +279,8 @@ impl MWSO {
                     
                     if reward > 0.0 {
                         let (sin_p, cos_p) = current_phase.sin_cos();
-                        // 128ビン設定では、より強い注入（1.5 -> 3.0）で正解スコアを固定
-                        self.psi_real[idx] += 3.0 * reward * cos_p;
-                        self.psi_imag[idx] += 3.0 * reward * sin_p;
+                        self.psi_real[idx] += 3.0 * reward * cos_p * dim_factor;
+                        self.psi_imag[idx] += 3.0 * reward * sin_p * dim_factor;
                         self.theta[(idx + self.dim) % t_len] = 1.0; 
                     }
                 }

@@ -52,7 +52,7 @@ impl Singularity {
     pub fn new(state_size: usize, category_sizes: Vec<usize>) -> Self {
         let nodes = vec![Node::new(0.5), Node::new(0.4), Node::new(0.3), Node::new(0.3)];
         let total_action_size: usize = category_sizes.iter().sum();
-        let required_dim = (total_action_size * 128).next_power_of_two().max(1024);
+        let required_dim = (total_action_size * 64).next_power_of_two().max(1024);
         
         Self {
             nodes,
