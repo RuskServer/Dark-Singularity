@@ -40,6 +40,10 @@ fn run_convergence_tracking(name: &str, action_size: usize, is_rule: bool) -> Tr
 
     for episode in 0..max_episodes {
         let state_idx = episode % state_size;
+        
+        // 事前に現在のスコア分布を覗き見（デバッグ用）
+        let raw_scores = singularity.mwso.get_action_scores(0, action_size, 0.0, &[]);
+        
         let actions = singularity.select_actions(state_idx);
         let selected_action = actions[0] as usize;
 
@@ -52,6 +56,18 @@ fn run_convergence_tracking(name: &str, action_size: usize, is_rule: bool) -> Tr
         if recent_rewards.len() > window_size { 
             recent_rewards.remove(0); 
             recent_hits.remove(0);
+        }
+
+        // --- 詳細ログの出力 ---
+        if episode % 100 == 0 {
+            let temp = singularity.system_temperature;
+            let ipr = singularity.mwso.calculate_ipr();
+            let rhyd = singularity.get_resonance_density();
+            let correct_score = raw_scores[target_map[state_idx]];
+            let max_score = raw_scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            
+            println!("Ep: {:4} | S: {:2} | A: {:2} ({:5}) | RawS: {:>7.2} (Max:{:>7.2}) | T: {:.3} | IPR: {:>6.2} | Rhyd: {:>6.2}",
+                     episode, state_idx, selected_action, is_correct, correct_score, max_score, temp, ipr, rhyd);
         }
 
         if episode % 50 == 0 {

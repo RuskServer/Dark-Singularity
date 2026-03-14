@@ -27,13 +27,28 @@ impl MWSO {
         let mut frequencies = vec![0.0; dim];
         for i in 0..theta_size { theta[i] = (i as f32 * 0.1).sin() * 0.1; }
         for i in 0..dim { frequencies[i] = (i as f32 / dim as f32).powi(2) * 2.0 * PI; }
+        let mut entanglements = Vec::new();
+        // --- Small-World Network Construction ---
+        // Add 5% random long-range connections (wormholes)
+        let wormhole_count = (dim as f32 * 0.05) as usize;
+        let mut seed = 0x12345678u64; // Local seed for construction
+        for _ in 0..wormhole_count {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let from = (seed % dim as u64) as usize;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let to = (seed % dim as u64) as usize;
+            if from != to {
+                entanglements.push((from, to, 0.05)); // Slight coupling
+            }
+        }
+
         Self { 
             psi_real: vec![0.01; dim], 
             psi_imag: vec![0.0; dim], 
             theta, 
             frequencies, 
             gravity_field: vec![0.0; dim],
-            entanglements: Vec::new(),
+            entanglements,
             memory_psi_real: vec![0.0; dim],
             memory_psi_imag: vec![0.0; dim],
             dim,
@@ -53,14 +68,25 @@ impl MWSO {
     }
 
     /// Imprints a state into the global memory wave via superposition.
+    /// This uses holographic principles where coherent patterns add up and noise cancels out.
     pub fn imprint_memory(&mut self, psi_real: &[f32], psi_imag: &[f32], strength: f32) {
         if psi_real.len() != self.dim || psi_imag.len() != self.dim { return; }
+        
+        // 次元数に応じた適応的強度
+        let adaptive_strength = strength as f64 * (1024.0 / self.dim as f32).sqrt() as f64;
+
         for i in 0..self.dim {
-            self.memory_psi_real[i] += psi_real[i] as f64 * strength as f64;
-            self.memory_psi_imag[i] += psi_imag[i] as f64 * strength as f64;
+            // 位相を保持したまま重畳（干渉）
+            self.memory_psi_real[i] += psi_real[i] as f64 * adaptive_strength;
+            self.memory_psi_imag[i] += psi_imag[i] as f64 * adaptive_strength;
+            
+            // 自己組織化：微弱な減衰（古い記憶の蒸発）
+            self.memory_psi_real[i] *= 0.9995;
+            self.memory_psi_imag[i] *= 0.9995;
         }
-        // 次元数に比例した正規化
-        let target = self.dim as f64 * 0.01;
+        
+        // 記憶のエネルギーを一定に保つ（過学習・発散防止）
+        let target = (self.dim as f64 * 0.05).min(50.0); 
         self.normalize_memory(target);
     }
 
@@ -104,7 +130,13 @@ impl MWSO {
             overlap_re += self.psi_real[i] as f64 * self.memory_psi_real[i] + self.psi_imag[i] as f64 * self.memory_psi_imag[i];
             overlap_im += self.psi_real[i] as f64 * self.memory_psi_imag[i] - self.psi_imag[i] as f64 * self.memory_psi_real[i];
         }
-        let resonance_amplitude = (overlap_re.powi(2) + overlap_im.powi(2)).sqrt().min(1.0) as f32;
+        
+        // Resonance amplitude determines how much "experience" flows back into the current state
+        let resonance_sq = (overlap_re.powi(2) + overlap_im.powi(2)) as f32;
+        // Boost memory effect limit to 1.0 to allow self-amplifying memory attractors             
+        let memory_effect = ((resonance_sq.sqrt() / (self.dim as f32).sqrt()) * 0.5).min(1.0);        
+
+        let dim_scale = (self.dim as f32).sqrt();
 
         for i in 0..self.dim {
             self.theta[i] *= solidification;
@@ -112,7 +144,8 @@ impl MWSO {
 
             let omega = self.frequencies[i];
             let (re, im) = (self.psi_real[i], self.psi_imag[i]);
-            let (sin_w, cos_w) = (omega * effective_dt).sin_cos();
+            
+            let (sin_w, cos_w) = (omega * effective_dt).sin_cos();   
             
             let new_re = re * cos_w - im * sin_w;
             let new_im = re * sin_w + im * cos_w;
@@ -121,35 +154,38 @@ impl MWSO {
             let next_idx = (i + 1) % self.dim;
             let prev_idx = if i == 0 { self.dim - 1 } else { i - 1 };
             
-            let coupling_resonance = coupling_strength * (self.psi_real[next_idx] + self.psi_real[prev_idx]);
+            // Dimensional normalization for Laplacian coupling to prevent excessive diffusion
+            let coupling_resonance = coupling_strength * (self.psi_real[next_idx] + self.psi_real[prev_idx]) / dim_scale;
             
-            // --- Memory Interaction ---
-            // If the current state resonates with the memory wave, it flows into the active state.
-            // This is "Quantum Mechanical Reminiscence".
-            let memory_flow_re = (self.memory_psi_real[i] * resonance_amplitude as f64 * 0.5) as f32;
-            let memory_flow_im = (self.memory_psi_imag[i] * resonance_amplitude as f64 * 0.5) as f32;
+            // --- Quantum Holographic Recall ---
+            let memory_flow_re = self.memory_psi_real[i] as f32 * memory_effect;
+            let memory_flow_im = self.memory_psi_imag[i] as f32 * memory_effect;
 
             self.psi_real[i] = new_re + (coupling_resonance + memory_flow_re) * effective_dt * (1.0 + focus_factor);
             self.psi_imag[i] = new_im + memory_flow_im * effective_dt * (1.0 + focus_factor);
             
-            // 重力場による「事象の地平線」効果：重力が強いほど忘却（粘性）が消える
+            // 重力場による「事象の地平線」効果
             let gravity = self.gravity_field[i];
             let penalty = penalty_field.get(i).cloned().unwrap_or(0.0);
-            let base_viscosity = 0.01 * (1.1 - self.theta[i + self.dim].clamp(-1.0, 1.0).abs());
-            
-            // 粘性計算の緩和：高次元での停滞を防いで、照射エネルギーを深部まで届ける
+            let base_viscosity = 0.03 * (1.1 - self.theta[i + self.dim].clamp(-1.0, 1.0).abs());
             let viscosity = base_viscosity * (1.0 - gravity).max(0.001f32) + penalty * 0.1; 
 
             self.psi_real[i] *= (1.0 - viscosity * effective_dt).max(0.0);
             self.psi_imag[i] *= (1.0 - viscosity * effective_dt).max(0.0);
         }
 
-        // ワームホールによる量子もつれ（位相の同期）
+        // ワームホールによる量子もつれ（エネルギー保存型 exchange）
         for &(a, b, strength) in &self.entanglements {
             let p1_real = self.psi_real[a];
             let p1_imag = self.psi_imag[a];
-            self.psi_real[b] += p1_real * strength * effective_dt;
-            self.psi_imag[b] += p1_imag * strength * effective_dt;
+            
+            let delta_re = p1_real * strength * effective_dt;
+            let delta_im = p1_imag * strength * effective_dt;
+            
+            self.psi_real[b] += delta_re;
+            self.psi_imag[b] += delta_im;
+            self.psi_real[a] -= delta_re; // エネルギー保存
+            self.psi_imag[a] -= delta_im;
         }
 
         let target_norm = 1.0 + (system_temp * 0.5).min(1.5);
@@ -183,10 +219,11 @@ impl MWSO {
 
             score -= total_penalty * 0.5;
             
-            // Linear score instead of exponential for stability
-            if exploration_noise > 0.0 {
-                score += (self.next_rng() - 0.5) * exploration_noise;
-            }
+            // Scaled Score Normalization (similar to Transformer's 1/sqrt(d))
+            // Prevents score explosion as the number of bins increases.
+            score /= (bin_per_action as f32).sqrt();
+            
+            // Linear score. Noise/Jitter is now handled at the decision level (Top-k Softmax).
             scores.push(score);
         }
         scores
@@ -203,18 +240,19 @@ impl MWSO {
         for &action_idx in last_actions {
             let base_idx = action_idx * bin_per_action;
 
-            if reward > 2.0 {
+            if reward > 1.2 {
                 // 強力な報酬：重力場を形成（ブラックホール化）
                 for j in 0..bin_per_action {
                     let idx = (base_idx + j) % self.dim;
                     self.gravity_field[idx] = (self.gravity_field[idx] + 0.1 * dim_factor).min(1.0);
                 }
                 
-                // --- Imprint Memory on Success ---
-                // If a great result is achieved, imprint the current state into the global memory wave.
+                // --- Holographic Imprinting (Refined) ---
+                // Confident patterns (low temp) are imprinted with higher fidelity.
+                let fidelity = (1.1 - system_temp * 0.5).clamp(0.2, 1.0);
                 let psi_re = self.psi_real.clone();
                 let psi_im = self.psi_imag.clone();
-                self.imprint_memory(&psi_re, &psi_im, reward * 0.2);
+                self.imprint_memory(&psi_re, &psi_im, reward * fidelity as f32);
             }
 
             if reward < 0.0 {
@@ -241,8 +279,9 @@ impl MWSO {
                     
                     if reward > 0.0 {
                         let (sin_p, cos_p) = current_phase.sin_cos();
-                        self.psi_real[idx] += 1.5 * reward * cos_p;
-                        self.psi_imag[idx] += 1.5 * reward * sin_p;
+                        // 128ビン設定では、より強い注入（1.5 -> 3.0）で正解スコアを固定
+                        self.psi_real[idx] += 3.0 * reward * cos_p;
+                        self.psi_imag[idx] += 3.0 * reward * sin_p;
                         self.theta[(idx + self.dim) % t_len] = 1.0; 
                     }
                 }

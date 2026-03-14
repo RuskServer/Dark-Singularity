@@ -52,7 +52,7 @@ impl Singularity {
     pub fn new(state_size: usize, category_sizes: Vec<usize>) -> Self {
         let nodes = vec![Node::new(0.5), Node::new(0.4), Node::new(0.3), Node::new(0.3)];
         let total_action_size: usize = category_sizes.iter().sum();
-        let required_dim = (total_action_size * 64).next_power_of_two().max(512);
+        let required_dim = (total_action_size * 128).next_power_of_two().max(1024);
         
         Self {
             nodes,
@@ -124,10 +124,11 @@ impl Singularity {
         self.mwso.inject_state(state_idx, 1.0, &current_penalty_field);
         
         // 過去の状態を減衰させながら重畳注入（流れを形成）
-        let mut decay = 0.4;
+        // 2048次元設定では、履歴エネルギーを強めに維持(0.4 -> 0.6)してパスを形成する
+        let mut decay = 0.6;
         for &prev_idx in self.input_history.iter().rev() {
             self.mwso.inject_state(prev_idx, decay, &current_penalty_field);
-            decay *= 0.5;
+            decay *= 0.6;
             if decay < 0.1 { break; }
         }
         
@@ -136,14 +137,8 @@ impl Singularity {
         if self.input_history.len() > 4 { self.input_history.pop_front(); }
         // ------------------------------------------
 
-        // Noise Injection: Only when temperature is high and confidence is low
-        let ipr = self.mwso.calculate_ipr();
-        let confidence_factor = (10.0 / ipr.max(10.0)).clamp(0.0, 1.0); // 1.0 when dispersed, 0.0 when focused
-        
-        if self.system_temperature > 0.6 && confidence_factor > 0.5 {
-            let noise_strength = (self.system_temperature.powi(2) * 0.1).clamp(0.0, 0.3);
-            self.mwso.inject_exploration_noise(noise_strength);
-        }
+        // Background continuous noise is removed for signal clarity.
+        // Exploration is now purely through e-greedy and focused irradiation.
         
         // --- Focused Irradiation (Refined: Promising Focus) ---
         if self.system_temperature > 0.3 {
@@ -168,11 +163,14 @@ impl Singularity {
                 
                 // 70% chance to focus on the leader, 30% on the runner-up to break local optima
                 self.current_focus_action = if self.mwso.next_rng() < 0.7 { best_idx } else { second_idx };
-                self.exploration_timer = 15; 
+                
+                // Timer scales with sqrt(dim) to allow interference formation in high dimensions
+                let dim_ratio = (self.mwso.dim as f32 / 1024.0).sqrt();
+                self.exploration_timer = (15.0 * dim_ratio) as usize; 
             }
             
-            // Dimension-aware strength: higher dims need a bigger "kick" to collapse
-            let dim_boost = (self.mwso.dim as f32 / 1024.0).sqrt();
+            // Linear scaling for strength: higher dims need linear boost to combat energy diffusion
+            let dim_boost = self.mwso.dim as f32 / 1024.0;
             let strength = 0.1 * self.system_temperature * dim_boost; 
             
             self.mwso.illuminate_bin(self.current_focus_action, self.action_size, strength);
@@ -208,27 +206,19 @@ impl Singularity {
     }
 
     fn get_best_in_range(&mut self, offset: usize, size: usize, penalty_field: &[f32]) -> usize {
-        // Squared temperature for faster jitter reduction
-        let noise = (self.system_temperature.powi(2) * 0.2).clamp(0.001, 0.5);
-        let mwso_scores = self.mwso.get_action_scores(offset, size, noise, penalty_field);
-        
-        let mut best = 0;
-        let mut max_score = -f32::INFINITY;
-
+        let mwso_scores = self.mwso.get_action_scores(offset, size, 0.0, penalty_field);
         let active_resonance = self.bootstrapper.calculate_resonance_field(&self.active_conditions, self.action_size);
+
+        let mut candidate_scores = Vec::with_capacity(size);
 
         for i in 0..size {
             let mut knowledge_field = 0.0;
             if let Some(s) = active_resonance[offset + i] {
-                if s < -0.9 { // 強力なペナルティ（無限大に近い排斥）
-                    knowledge_field = -100.0; 
-                } else {
-                    knowledge_field = s * 5.0;
-                }
+                if s < -0.9 { knowledge_field = -100.0; } 
+                else { knowledge_field = s * 5.0; }
             }
             
             let mwso_component = mwso_scores[i];
-            
             let internal_field = self.learned_rules.iter()
                 .find(|r| r.0 == self.last_state_idx && r.1 == offset + i)
                 .map(|r| (r.2 as f32 * 1.0).min(5.0)).unwrap_or(0.0);
@@ -247,21 +237,39 @@ impl Singularity {
             let fatigue_penalty = self.fatigue_map[offset + i] * 2.0;
             
             let total_score = mwso_component + internal_field + knowledge_field + neuron_boost + momentum_boost - fatigue_penalty + (self.morale * 0.1);
-            
-            // 次元数に応じて相転移の「鋭さ」を調整
-            // 高次元(2048+)では相転移を緩やかにし、誤認による収束を防ぐ
-            let dim_stability_factor = (1024.0 / self.mwso.dim as f32).sqrt().min(1.0);
-            let base_sharpness = 8.0 * dim_stability_factor; // Peak reduced from 10 to 8
-            let sharp_factor = (base_sharpness - self.system_temperature * (3.0 * dim_stability_factor)).clamp(1.2, base_sharpness);
-            
-            let collapsed_score = (total_score + 10.0).max(0.1).powf(sharp_factor) + (i as f32 * 0.01).sin() * 0.001;
+            candidate_scores.push((i, total_score));
+        }
 
-            if collapsed_score > max_score {
-                max_score = collapsed_score;
-                best = i;
+        // --- Top-k Softmax Sampling ---
+        // 1. Sort by score descending
+        candidate_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // 2. Take Top-k (k=3 or size if smaller)
+        let k = 3.min(size);
+        let top_k = &candidate_scores[..k];
+
+        // 3. Compute Softmax probabilities over Top-k
+        // Probability depends on inverse temperature
+        let beta = (1.0 / self.system_temperature.max(0.05)) * 2.0;
+        let mut probs = Vec::with_capacity(k);
+        let max_s = top_k[0].1;
+        let mut sum_exp = 0.0;
+
+        for &(_, s) in top_k {
+            let p = ((s - max_s) * beta).exp(); // subtract max for numerical stability
+            probs.push(p);
+            sum_exp += p;
+        }
+
+        // 4. Weighted Random Sample from Top-k
+        let mut r = self.mwso.next_rng() * sum_exp;
+        for i in 0..k {
+            r -= probs[i];
+            if r <= 0.0 {
+                return top_k[i].0;
             }
         }
-        best
+        top_k[0].0
     }
 
     pub fn learn(&mut self, reward: f32) {
@@ -333,7 +341,20 @@ impl Singularity {
             
             if reward > 0.0 {
                 let cooling_rate = (0.8 + (reward * 0.1).min(0.15)) / dim_inertia; 
-                self.system_temperature = (self.system_temperature * (1.0 - cooling_rate * 0.2) - reward * 0.05 / dim_inertia).max(0.02);
+                let mut next_temp = self.system_temperature * (1.0 - cooling_rate * 0.2) - reward * 0.05 / dim_inertia;
+                
+                // --- Stability Guard (Rhyd Feedback) ---
+                // If resonance is high, force cool to stabilize the pattern and prevent overshoot
+                let rhyd = self.mwso.calculate_rhyd();
+                if rhyd > 5.0 {
+                    next_temp *= 0.7; // Rapid stabilization
+                }
+                
+                // IPRが低い（確信している）時は、冷却を加速して 0 に近づける
+                let ipr = self.mwso.calculate_ipr();
+                if ipr < 25.0 { next_temp *= 0.5; }
+                
+                self.system_temperature = next_temp.max(0.01);
             } else {
                 // IPR（波動の集中度）をチェック。集中している(IPRが低い)ほど、失敗に動じない。
                 let ipr = self.mwso.calculate_ipr();
