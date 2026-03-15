@@ -41,6 +41,7 @@ pub struct Singularity {
     pub learned_rules: Vec<(usize, usize, usize)>, 
     pub penalty_matrix: Vec<f32>, 
 
+    pub empty_penalty: Vec<f32>,
     pub exploration_beta: f32,    
     pub exploration_timer: usize,
     pub current_focus_action: usize,
@@ -99,6 +100,7 @@ impl Singularity {
             max_history: 15,
             learned_rules: Vec::new(),
             penalty_matrix: vec![0.0; state_size * penalty_dim],
+            empty_penalty: vec![0.0; penalty_dim],
             exploration_beta: 0.1, 
             exploration_timer: 0,
             current_focus_action: 0,
@@ -448,15 +450,19 @@ impl Singularity {
         }
 
         let urgency = ((reward + penalty) * 5.0).min(1.0);
-        let empty_penalty = &vec![0.0; self.penalty_dim];
-        if let Some(ref mut sharded) = self.sharded_mwso {
-            sharded.inject_state(0, reward, empty_penalty);
-            sharded.inject_state(1, -penalty, empty_penalty);
-            sharded.step_core(0.05, 0.0, 0.0, self.system_temperature, empty_penalty);
-        } else {
-            self.mwso.inject_state(0, reward, &vec![0.0; self.mwso.dim]);
-            self.mwso.inject_state(1, -penalty, &vec![0.0; self.mwso.dim]);
-            self.mwso.step_core(0.05, 0.0, 0.0, self.system_temperature, &vec![0.0; self.mwso.dim]);
+        
+        match &mut self.sharded_mwso {
+            Some(sharded) => {
+                sharded.inject_state(0, reward, &self.empty_penalty);
+                sharded.inject_state(1, -penalty, &self.empty_penalty);
+                sharded.step_core(0.05, 0.0, 0.0, self.system_temperature, &self.empty_penalty);
+            },
+            None => {
+                // In non-sharded mode, mwso.dim and penalty_dim are the same.
+                self.mwso.inject_state(0, reward, &self.empty_penalty);
+                self.mwso.inject_state(1, -penalty, &self.empty_penalty);
+                self.mwso.step_core(0.05, 0.0, 0.0, self.system_temperature, &self.empty_penalty);
+            }
         }
 
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
@@ -541,7 +547,7 @@ impl Singularity {
         // 1. 位相の同調（模倣位相ロック）
         for &action in expert_actions {
             if let Some(ref mut sharded) = self.sharded_mwso {
-                // ※ShardedMWSOに align_to_action を実装する必要があります（後述）
+                // ShardedMWSOのalign_to_actionを呼び出す
                 sharded.align_to_action(action, strength);
             } else {
                 self.mwso.align_to_action(action, strength, self.action_size);

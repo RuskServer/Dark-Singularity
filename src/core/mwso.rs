@@ -1,6 +1,7 @@
 // Monolithic Wave-State Operator (MWSO) - Elastic Evolution
 // Analog Penalty Fields, Dissipative Failure Memory.
 
+use std::collections::HashMap;
 use std::f32::consts::PI;
 
 pub struct MWSO {
@@ -392,7 +393,8 @@ pub struct ShardedMWSO {
     pub shard_dim: usize,       // 各シャードの次元（固定1024）
     pub total_action_size: usize,
     pub actions_per_shard: usize,
-    pub inter_shard_tunnels: Vec<(usize, usize, usize, usize, f32)>, // from_shard, from_bin, to_shard, to_bin, strength
+    // (from_shard, from_bin, to_shard, to_bin) -> strength
+    pub inter_shard_tunnels: HashMap<(usize, usize, usize, usize), f32>,
 }
 
 impl ShardedMWSO {
@@ -410,7 +412,7 @@ impl ShardedMWSO {
             shard_dim,
             total_action_size,
             actions_per_shard,
-            inter_shard_tunnels: Vec::new(),
+            inter_shard_tunnels: HashMap::new(),
         }
     }
  
@@ -427,16 +429,9 @@ impl ShardedMWSO {
         let bin_per_action = self.shard_dim / self.actions_per_shard;
         let to_bin = local_to_action * bin_per_action;
 
-        // 既存のトンネルを探す
-        if let Some(tunnel) = self.inter_shard_tunnels.iter_mut().find(|(fs, fb, ts, tb, _)|
-            *fs == from_shard_idx && *fb == from_bin && *ts == to_shard_idx && *tb == to_bin
-        ) {
-            // あれば強化
-            tunnel.4 = (tunnel.4 + strength).min(1.0); // strengthの上限は1.0
-        } else {
-            // なければ新設
-            self.inter_shard_tunnels.push((from_shard_idx, from_bin, to_shard_idx, to_bin, strength.min(1.0)));
-        }
+        let key = (from_shard_idx, from_bin, to_shard_idx, to_bin);
+        let tunnel_strength = self.inter_shard_tunnels.entry(key).or_insert(0.0);
+        *tunnel_strength = (*tunnel_strength + strength).min(1.0);
     }
 
     /// どのシャードが担当するかを返す
@@ -521,7 +516,7 @@ impl ShardedMWSO {
 
         // 2. シャード間トンネルでエネルギーを交換する
         let effective_dt = dt * (1.0 + speed_boost);
-        for &(from_shard, from_bin, to_shard, to_bin, strength) in &self.inter_shard_tunnels {
+        for (&(from_shard, from_bin, to_shard, to_bin), &strength) in &self.inter_shard_tunnels {
             // エネルギーを失う側（from）
             let (from_psi_re, from_psi_im) = {
                 let shard_from = &self.shards[from_shard];
@@ -540,14 +535,18 @@ impl ShardedMWSO {
             // self.shards[from_shard].psi_real[from_bin] -= delta_re;
             // self.shards[from_shard].psi_imag[from_bin] -= delta_im;
             // NOTE: エネルギー保存を厳密にすると発散しやすくなるため、一方的な注入（増幅）として実装する。
-            // これにより、関連性の強いシャードの活動がブーストされる効果を狙う。
+            //       これにより、関連性の強いシャードの活動がブーストされる効果を狙う。
+            // TODO: この一方的なエネルギー注入は、関連活動をブーストする効果がある一方、
+            //       長期的にはシステムの不安定性を引き起こす可能性も否定できない。
+            //       将来的に、エネルギー保存則を考慮した、より安定した結合方法の検討も視野に入れる。
         }
 
-        // 3. トンネル自体の自然減衰
-        self.inter_shard_tunnels.retain(|t| t.4 > 0.01);
-        for t in &mut self.inter_shard_tunnels {
-            t.4 *= 0.995;
-        }
+        // 3. トンネル自体の自然減衰と枝刈り
+        //HashMap::retain を使うと効率的
+        self.inter_shard_tunnels.retain(|_, strength| {
+            *strength *= 0.995;
+            *strength > 0.01
+        });
     }
  
     pub fn adapt(&mut self, reward: f32, last_actions: &[usize], system_temp: f32) {
