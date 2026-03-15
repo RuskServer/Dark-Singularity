@@ -332,7 +332,8 @@ impl Singularity {
         let mut discount = 1.0;
         let gamma = 0.9;
 
-        for exp in self.history.iter().rev() {
+        let history_clone = self.history.clone();
+        for exp in history_clone.iter().rev() {
             let discounted_reward = reward * discount;
             if let Some(ref mut sharded) = self.sharded_mwso {
                 sharded.adapt(discounted_reward, &exp.actions, self.system_temperature);
@@ -380,6 +381,21 @@ impl Singularity {
                     }
                 }
             }
+
+            // --- ここから自動IRL注入ロジック ---
+            const HIGH_REWARD_THRESHOLD: f32 = 1.0;
+            const LOW_REWARD_THRESHOLD: f32 = -0.5;
+
+            if discounted_reward > HIGH_REWARD_THRESHOLD {
+                // 高報酬: エキスパート行動と見なして observe_expert で自己強化
+                let strength = (discounted_reward - HIGH_REWARD_THRESHOLD) * 0.2;
+                self.observe_expert(exp.state_idx, &exp.actions, strength.clamp(0.0, 0.5));
+            } else if discounted_reward < LOW_REWARD_THRESHOLD {
+                // 低報酬: アンチエキスパート行動と見なして suppress_expert で自己抑制
+                let strength = (discounted_reward.abs() - LOW_REWARD_THRESHOLD.abs()) * 0.2;
+                self.suppress_expert(&exp.actions, strength.clamp(0.0, 0.5));
+            }
+            // --- 自動IRL注入ここまで ---
 
             for &idx in &exp.actions {
                 if discounted_reward < 0.0 { self.fatigue_map[idx] = (self.fatigue_map[idx] + 0.2 * discount).min(1.0); }
@@ -585,6 +601,17 @@ impl Singularity {
         // 次回の learn 時（もしあれば）に正の実績として扱えるようにする
         self.last_actions = expert_actions.to_vec();
         self.last_state_idx = state_idx;
+    }
+
+    /// 逆強化学習: 負のフィードバックから行動を抑制する
+    pub fn suppress_expert(&mut self, bad_actions: &[usize], strength: f32) {
+        for &action in bad_actions {
+            if let Some(ref mut sharded) = self.sharded_mwso {
+                sharded.suppress_action(action, strength);
+            } else {
+                self.mwso.suppress_action(action, strength, self.action_size);
+            }
+        }
     }
 
     pub fn add_wormhole(&mut self, from_action: usize, to_action: usize, strength: f32) {

@@ -325,6 +325,29 @@ impl MWSO {
         }
     }
 
+    /// 負のフィードバックに基づき、行動を抑制するための逆方向アライメント
+    pub fn suppress_action(&mut self, action_idx: usize, strength: f32, action_size: usize) {
+        let bin_per_action = self.dim / action_size;
+        let base_idx = (action_idx * bin_per_action) % self.dim;
+        let lr = 0.5 * strength;
+
+        for j in 0..bin_per_action {
+            let idx = (base_idx + j) % self.dim;
+            let current_phase = self.psi_imag[idx].atan2(self.psi_real[idx]);
+            // 逆位相である PI をターゲットにする
+            let target_phase = PI;
+            let phase_diff_sin = (target_phase - current_phase).sin();
+            self.theta[idx] = (self.theta[idx] + phase_diff_sin * lr).clamp(-PI, PI);
+            
+            // 波動の振幅を減衰させる
+            self.psi_real[idx] *= 1.0 - (0.1 * strength);
+            self.psi_imag[idx] *= 1.0 - (0.1 * strength);
+
+            // 重力場を弱める
+            self.gravity_field[idx] = (self.gravity_field[idx] - 0.02 * strength).max(0.0);
+        }
+    }
+
     pub fn inject_exploration_noise(&mut self, strength: f32) {
         for i in 0..self.dim {
             let noise = (self.next_rng() - 0.5) * 2.0;
@@ -586,6 +609,15 @@ impl ShardedMWSO {
     pub fn align_to_action(&mut self, action_idx: usize, strength: f32) {
         let (shard_idx, local_action) = self.shard_for_action(action_idx);
         self.shards[shard_idx].align_to_action(
+            local_action,
+            strength,
+            self.actions_per_shard,
+        );
+    }
+
+    pub fn suppress_action(&mut self, action_idx: usize, strength: f32) {
+        let (shard_idx, local_action) = self.shard_for_action(action_idx);
+        self.shards[shard_idx].suppress_action(
             local_action,
             strength,
             self.actions_per_shard,
