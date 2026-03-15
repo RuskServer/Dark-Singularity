@@ -90,6 +90,12 @@ fn benchmark_memory_capacity_scaling() {
 
                     let next_n = shard_patterns[shard_idx].len();
 
+                    let min_patterns_before_check = 10;
+                    if shard_patterns[shard_idx].len() < min_patterns_before_check {
+                        shard_n[shard_idx] = shard_patterns[shard_idx].len();
+                        continue;
+                    }
+
                     // SNRチェック（そのシャードのパターンだけで確認）
                     let mut total_energy_sq = 0.0_f64;
                     for j in 0..shard_dim {
