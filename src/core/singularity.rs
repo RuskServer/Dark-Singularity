@@ -1,6 +1,7 @@
 use super::horizon::Horizon;
 use super::node::Node;
 use super::mwso::MWSO;
+use super::mwso::ShardedMWSO;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::collections::VecDeque;
@@ -15,6 +16,7 @@ pub struct Singularity {
     pub nodes: Vec<Node>,
     pub horizon: Horizon,
     pub mwso: MWSO,
+    pub sharded_mwso: Option<ShardedMWSO>,
     pub bootstrapper: crate::core::knowledge::Bootstrapper,
     pub active_conditions: Vec<i32>, 
     pub system_temperature: f32,
@@ -29,6 +31,7 @@ pub struct Singularity {
     pub category_sizes: Vec<usize>, 
     pub action_size: usize,    
     pub state_size: usize,
+    pub penalty_dim: usize,
     pub last_actions: Vec<usize>, 
     pub last_state_idx: usize,
     pub action_momentum: Vec<f32>, 
@@ -52,12 +55,27 @@ impl Singularity {
     pub fn new(state_size: usize, category_sizes: Vec<usize>) -> Self {
         let nodes = vec![Node::new(0.5), Node::new(0.4), Node::new(0.3), Node::new(0.3)];
         let total_action_size: usize = category_sizes.iter().sum();
-        let required_dim = (total_action_size * 64).next_power_of_two().max(1024);
+
+        let shard_threshold = 16; // 16アクション以上はシャード化
+        let use_sharding = total_action_size > shard_threshold;
+
+        let (required_dim, penalty_dim) = if use_sharding {
+            let p_dim = (total_action_size * 64).next_power_of_two();
+            (1024, p_dim)
+        } else {
+            let dim = (total_action_size * 64).next_power_of_two().max(1024);
+            (dim, dim)
+        };
         
         Self {
             nodes,
             horizon: Horizon::new(),
             mwso: MWSO::new(required_dim),
+            sharded_mwso: if use_sharding {
+                Some(ShardedMWSO::new(total_action_size))
+            } else {
+                None
+            },
             bootstrapper: crate::core::knowledge::Bootstrapper::new(),
             active_conditions: Vec::new(),
             system_temperature: 0.5,
@@ -72,6 +90,7 @@ impl Singularity {
             category_sizes: category_sizes.clone(),
             action_size: total_action_size,
             state_size,
+            penalty_dim,
             last_actions: vec![0; category_sizes.len()],
             last_state_idx: 0,
             action_momentum: vec![0.0; total_action_size],
@@ -79,7 +98,7 @@ impl Singularity {
             history: VecDeque::with_capacity(32),
             max_history: 15,
             learned_rules: Vec::new(),
-            penalty_matrix: vec![0.0; state_size * required_dim],
+            penalty_matrix: vec![0.0; state_size * penalty_dim],
             exploration_beta: 0.1, 
             exploration_timer: 0,
             current_focus_action: 0,
@@ -99,8 +118,10 @@ impl Singularity {
         let speed_boost = (self.adrenaline * 0.5).clamp(0.0, 1.0);
         let focus_factor = (self.nodes[self.idx_tactical].state * 0.5).clamp(0.0, 1.0);
 
-        let start = state_idx * self.mwso.dim;
-        let mut current_penalty_field = self.penalty_matrix[start..start + self.mwso.dim].to_vec();
+        let total_dim = self.penalty_dim;
+        
+        let start = state_idx * total_dim;
+        let mut current_penalty_field = self.penalty_matrix[start..start + total_dim].to_vec();
 
         // --- Knowledge-based Penalty Injection ---
         let bin_per_action = self.mwso.dim / self.action_size;
@@ -121,13 +142,22 @@ impl Singularity {
 
         // --- Flow Injection (Temporal Smearing) ---
         // 現在の状態を 1.0 で注入
-        self.mwso.inject_state(state_idx, 1.0, &current_penalty_field);
+        if let Some(ref mut sharded) = self.sharded_mwso {
+            sharded.inject_state(state_idx, 1.0, &current_penalty_field);
+        } else {
+            self.mwso.inject_state(state_idx, 1.0, &current_penalty_field);
+        }
         
         // 過去の状態を減衰させながら重畳注入（流れを形成）
         // 2048次元設定では、履歴エネルギーを強めに維持(0.4 -> 0.6)してパスを形成する
         let mut decay = 0.6;
         for &prev_idx in self.input_history.iter().rev() {
-            self.mwso.inject_state(prev_idx, decay, &current_penalty_field);
+        if let Some(ref mut sharded) = self.sharded_mwso {
+                // 全シャードに注入するが強度を弱める
+                sharded.inject_state(prev_idx, decay * 0.5, &current_penalty_field);
+            } else {
+                self.mwso.inject_state(prev_idx, decay, &current_penalty_field);
+            }
             decay *= 0.6;
             if decay < 0.1 { break; }
         }
@@ -144,7 +174,11 @@ impl Singularity {
         if self.system_temperature > 0.3 {
             if self.exploration_timer == 0 {
                 // Preview scores without noise to find where the wave is gravitating
-                let preview_scores = self.mwso.get_action_scores(0, self.action_size, 0.0, &current_penalty_field);
+                let preview_scores = if let Some(ref mut sharded) = self.sharded_mwso {
+                    sharded.get_action_scores(&current_penalty_field)
+                } else {
+                    self.mwso.get_action_scores(0, self.action_size, 0.0, &current_penalty_field)
+                };
                 
                 // Find top candidates (best or second best)
                 let mut best_idx = 0;
@@ -173,11 +207,19 @@ impl Singularity {
             let dim_boost = self.mwso.dim as f32 / 1024.0;
             let strength = 0.1 * self.system_temperature * dim_boost; 
             
-            self.mwso.illuminate_bin(self.current_focus_action, self.action_size, strength);
+            if let Some(ref mut sharded) = self.sharded_mwso {
+                sharded.illuminate_bin(self.current_focus_action, strength);
+            } else {
+                self.mwso.illuminate_bin(self.current_focus_action, self.action_size, strength);
+            }
             self.exploration_timer -= 1;
         }
         
-        self.mwso.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
+        if let Some(ref mut sharded) = self.sharded_mwso {
+            sharded.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
+        } else {
+            self.mwso.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
+        }
 
         let mut results = Vec::with_capacity(self.category_sizes.len());
         let mut current_offset = 0;
@@ -206,7 +248,19 @@ impl Singularity {
     }
 
     fn get_best_in_range(&mut self, offset: usize, size: usize, penalty_field: &[f32]) -> usize {
-        let mwso_scores = self.mwso.get_action_scores(offset, size, 0.0, penalty_field);
+        let mwso_scores = if let Some(ref mut sharded) = self.sharded_mwso {
+            // 1. シャード全体から全アクションのスコアを一気に取得
+            // ※この内部で各シャードの get_action_scores が並列（または順次）に走る
+            let all_scores = sharded.get_action_scores(penalty_field);
+            
+            // 2. 必要な範囲（カテゴリ）だけを切り出す
+            // offset と size が total_dim (2048) を超えないよう安全にスライス
+            let end = (offset + size).min(all_scores.len());
+            all_scores[offset..end].to_vec()
+        } else {
+            // 従来の 1024次元単体モード
+            self.mwso.get_action_scores(offset, size, 0.0, penalty_field)
+        };
         let active_resonance = self.bootstrapper.calculate_resonance_field(&self.active_conditions, self.action_size);
 
         let mut candidate_scores = Vec::with_capacity(size);
@@ -275,11 +329,27 @@ impl Singularity {
     pub fn learn(&mut self, reward: f32) {
         let mut discount = 1.0;
         let gamma = 0.9;
-        let bin_per_action = self.mwso.dim / self.action_size;
 
         for exp in self.history.iter().rev() {
             let discounted_reward = reward * discount;
-            self.mwso.adapt(discounted_reward, &exp.actions, self.system_temperature, self.action_size);
+            if let Some(ref mut sharded) = self.sharded_mwso {
+                sharded.adapt(discounted_reward, &exp.actions, self.system_temperature);
+
+                // シャード間トンネルの学習
+                if discounted_reward > 0.1 && !sharded.shards.is_empty() {
+                    let state_shard_idx = exp.state_idx % sharded.shards.len();
+                    for &action_idx in &exp.actions {
+                        let (action_shard_idx, local_action) = sharded.shard_for_action(action_idx);
+                        if state_shard_idx != action_shard_idx {
+                            // 状態とアクションの担当シャードが違う場合、トンネルを強化
+                            let strength = (0.05 * discounted_reward).min(0.1);
+                            sharded.add_or_strengthen_tunnel(state_shard_idx, action_shard_idx, exp.state_idx, local_action, strength);
+                        }
+                    }
+                }
+            } else {
+                self.mwso.adapt(discounted_reward, &exp.actions, self.system_temperature, self.action_size);
+            }
 
             if self.active_conditions.is_empty() {
                 let state = exp.state_idx;
@@ -292,11 +362,15 @@ impl Singularity {
                     } else {
                         self.learned_rules.push((state, action, 1));
                     }
-                    let start = state * self.mwso.dim + action * bin_per_action;
+                    let penalty_dim = self.penalty_dim;
+                    let bin_per_action = penalty_dim / self.action_size;
+                    let start = state * penalty_dim + action * bin_per_action;
                     // 成功時にペナルティを消す力も次元数で調整
                     for j in 0..bin_per_action { self.penalty_matrix[start + j] *= 0.5 + 0.4 * (1.0 - dim_stability); }
                 } else if discounted_reward < 0.0 {
-                    let start = state * self.mwso.dim + action * bin_per_action;
+                    let penalty_dim = self.penalty_dim;
+                    let bin_per_action = penalty_dim / self.action_size;
+                    let start = state * penalty_dim + action * bin_per_action;
                     for j in 0..bin_per_action { 
                         // 失敗時のペナルティ注入を次元数に応じて薄める
                         let p_add = (discounted_reward.abs() * 2.0 * dim_stability).min(10.0);
@@ -345,19 +419,26 @@ impl Singularity {
                 
                 // --- Stability Guard (Rhyd Feedback) ---
                 // If resonance is high, force cool to stabilize the pattern and prevent overshoot
-                let rhyd = self.mwso.calculate_rhyd();
+                let rhyd = if let Some(ref sharded) = self.sharded_mwso { sharded.calculate_rhyd() } else { self.mwso.calculate_rhyd() };
                 if rhyd > 5.0 {
                     next_temp *= 0.7; // Rapid stabilization
                 }
                 
                 // IPRが低い（確信している）時は、冷却を加速して 0 に近づける
-                let ipr = self.mwso.calculate_ipr();
-                if ipr < 25.0 { next_temp *= 0.5; }
+                let ipr = if let Some(ref sharded) = self.sharded_mwso { sharded.calculate_ipr() } else { self.mwso.calculate_ipr() };
+                let ipr_threshold = if self.sharded_mwso.is_some() {
+                    let num_shards = self.sharded_mwso.as_ref().unwrap().num_shards();
+                    25.0 * num_shards as f32  // 2シャード→50.0
+                } else {
+                    25.0
+                };
+                
+                if ipr < ipr_threshold { next_temp *= 0.5; }
                 
                 self.system_temperature = next_temp.max(0.01);
             } else {
                 // IPR（波動の集中度）をチェック。集中している(IPRが低い)ほど、失敗に動じない。
-                let ipr = self.mwso.calculate_ipr();
+                let ipr = if let Some(ref sharded) = self.sharded_mwso { sharded.calculate_ipr() } else { self.mwso.calculate_ipr() };
                 let confidence_guard = (1.0 - (10.0 / ipr.max(10.0))).clamp(0.1, 1.0);
                 
                 // 確信度が高い（IPRが低い）時は、加熱（温度上昇）を最大 90% カットする
@@ -367,9 +448,16 @@ impl Singularity {
         }
 
         let urgency = ((reward + penalty) * 5.0).min(1.0);
-        self.mwso.inject_state(0, reward, &vec![0.0; self.mwso.dim]);
-        self.mwso.inject_state(1, -penalty, &vec![0.0; self.mwso.dim]);
-        self.mwso.step_core(0.05, 0.0, 0.0, self.system_temperature, &vec![0.0; self.mwso.dim]);
+        let empty_penalty = &vec![0.0; self.penalty_dim];
+        if let Some(ref mut sharded) = self.sharded_mwso {
+            sharded.inject_state(0, reward, empty_penalty);
+            sharded.inject_state(1, -penalty, empty_penalty);
+            sharded.step_core(0.05, 0.0, 0.0, self.system_temperature, empty_penalty);
+        } else {
+            self.mwso.inject_state(0, reward, &vec![0.0; self.mwso.dim]);
+            self.mwso.inject_state(1, -penalty, &vec![0.0; self.mwso.dim]);
+            self.mwso.step_core(0.05, 0.0, 0.0, self.system_temperature, &vec![0.0; self.mwso.dim]);
+        }
 
         let current_states: Vec<f32> = self.nodes.iter().map(|n| n.state).collect();
         for node in &mut self.nodes { node.update(0.0, urgency, self.system_temperature, &current_states); }
@@ -394,8 +482,8 @@ impl Singularity {
         if self.system_temperature > 1.5 {
             let glia_intervention = self.horizon.get_intervention_level();
             if glia_intervention > 0.7 {
-                 self.nodes[self.idx_aggression].apply_inhibition(0.3);
-                 self.nodes[self.idx_fear].apply_inhibition(0.2);
+                self.nodes[self.idx_aggression].apply_inhibition(0.3);
+                self.nodes[self.idx_fear].apply_inhibition(0.2);
             }
         }
         self.apply_elastic_fatigue();
@@ -431,14 +519,33 @@ impl Singularity {
         if let Some(node) = self.nodes.get_mut(idx) { node.state = state.clamp(0.0, 1.0); }
     }
 
-    pub fn get_resonance_density(&self) -> f32 { self.mwso.calculate_rhyd() }
+    pub fn get_resonance_density(&self) -> f32 {
+        if let Some(ref sharded) = self.sharded_mwso {
+            sharded.calculate_rhyd() // 全シャードの平均値を取得
+        } else {
+            self.mwso.calculate_rhyd()
+        }
+    }
+
+    pub fn calculate_current_ipr(&self) -> f32 {
+        if let Some(ref sharded) = self.sharded_mwso {
+            sharded.calculate_ipr()
+        } else {
+            self.mwso.calculate_ipr()
+        }
+    }
 
     /// 逆強化学習: 行動から動機を逆算する
     /// エキスパートの行動を観測し、それを引き起こす「ハミルトニアン場（動機）」を内省的に生成する
     pub fn observe_expert(&mut self, state_idx: usize, expert_actions: &[usize], strength: f32) {
         // 1. 位相の同調（模倣位相ロック）
         for &action in expert_actions {
-            self.mwso.align_to_action(action, strength, self.action_size);
+            if let Some(ref mut sharded) = self.sharded_mwso {
+                // ※ShardedMWSOに align_to_action を実装する必要があります（後述）
+                sharded.align_to_action(action, strength);
+            } else {
+                self.mwso.align_to_action(action, strength, self.action_size);
+            }
         }
 
         // 2. 動機の逆算と定着（ハミルトニアンルールの自動生成）
@@ -453,8 +560,9 @@ impl Singularity {
                 }
 
                 // 観測された状態・行動ペアに対するペナルティを劇的に減少させる
-                let bin_per_action = self.mwso.dim / self.action_size;
-                let start = state_idx * self.mwso.dim + action * bin_per_action;
+                let penalty_dim = self.penalty_matrix.len() / self.state_size;
+                let bin_per_action = penalty_dim / self.action_size;
+                let start = state_idx * self.penalty_dim + action * bin_per_action;
                 for j in 0..bin_per_action {
                     if start + j < self.penalty_matrix.len() {
                         self.penalty_matrix[start + j] *= 0.5;
@@ -600,5 +708,13 @@ impl Singularity {
         self.last_topology_update_temp = -1.0;
         self.reshape_topology();
         Ok(())
+    }
+
+    pub fn get_raw_scores(&mut self, action_size: usize) -> Vec<f32> {
+        if let Some(ref mut sharded) = self.sharded_mwso {
+            sharded.get_action_scores(&vec![0.0; self.penalty_dim])
+        } else {
+            self.mwso.get_action_scores(0, action_size, 0.0, &vec![0.0; self.mwso.dim])
+        }
     }
 }

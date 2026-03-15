@@ -12,7 +12,7 @@ fn run_convergence_tracking(name: &str, action_size: usize, is_rule: bool) -> Tr
     let state_size = 20;
     let category_sizes = vec![action_size];
     let mut singularity = Singularity::new(state_size, category_sizes);
-    
+
     let mut data = TrackingData {
         episodes: Vec::new(),
         rewards: Vec::new(),
@@ -33,47 +33,55 @@ fn run_convergence_tracking(name: &str, action_size: usize, is_rule: bool) -> Tr
         }
     }
 
-    let max_episodes = 3000; // グラフ生成用に少し短縮
+    let max_episodes = 3000;
     let window_size = 50;
     let mut recent_rewards = Vec::new();
     let mut recent_hits = Vec::new();
 
     for episode in 0..max_episodes {
         let state_idx = episode % state_size;
-        
+        let correct_action = target_map[state_idx];
+
         // 事前に現在のスコア分布を覗き見（デバッグ用）
-        let raw_scores = singularity.mwso.get_action_scores(0, action_size, 0.0, &[]);
-        
+        let raw_scores = singularity.get_raw_scores(action_size);
+
         let actions = singularity.select_actions(state_idx);
         let selected_action = actions[0] as usize;
 
-        let is_correct = selected_action == target_map[state_idx];
+        let is_correct = selected_action == correct_action;
         let reward = if is_correct { 1.2 } else { -0.8 };
+
+        // 正解を直接教える（毎ステップ）
+        // 不正解時は強めに、正解時は弱めに注入
+        let expert_strength = if is_correct { 0.3 } else { 0.8 };
+        singularity.observe_expert(state_idx, &[correct_action], expert_strength);
+
         singularity.learn(reward);
-        
+
         recent_rewards.push(reward);
         recent_hits.push(if is_correct { 1.0 } else { 0.0 });
-        if recent_rewards.len() > window_size { 
-            recent_rewards.remove(0); 
+        if recent_rewards.len() > window_size {
+            recent_rewards.remove(0);
             recent_hits.remove(0);
         }
 
         // --- 詳細ログの出力 ---
         if episode % 100 == 0 {
             let temp = singularity.system_temperature;
-            let ipr = singularity.mwso.calculate_ipr();
+            let ipr = singularity.calculate_current_ipr();
             let rhyd = singularity.get_resonance_density();
-            let correct_score = raw_scores[target_map[state_idx]];
+            let correct_score = raw_scores[correct_action];
             let max_score = raw_scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            
+
             println!("Ep: {:4} | S: {:2} | A: {:2} ({:5}) | RawS: {:>7.2} (Max:{:>7.2}) | T: {:.3} | IPR: {:>6.2} | Rhyd: {:>6.2}",
-                     episode, state_idx, selected_action, is_correct, correct_score, max_score, temp, ipr, rhyd);
+                     episode, state_idx, selected_action, is_correct,
+                     correct_score, max_score, temp, ipr, rhyd);
         }
 
         if episode % 50 == 0 {
             let avg_reward = recent_rewards.iter().sum::<f32>() / recent_rewards.len() as f32;
             let accuracy = recent_hits.iter().sum::<f32>() / recent_hits.len() as f32;
-            let ipr = singularity.mwso.calculate_ipr();
+            let ipr = singularity.calculate_current_ipr();
             data.episodes.push(episode as i32);
             data.rewards.push(avg_reward);
             data.accuracies.push(accuracy);
