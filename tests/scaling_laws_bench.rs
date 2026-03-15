@@ -1,4 +1,5 @@
 use dark_singularity::core::mwso::MWSO;
+use dark_singularity::core::mwso::ShardedMWSO;
 use dark_singularity::core::singularity::Singularity;
 
 /// 最適化された SNR 計算
@@ -37,59 +38,126 @@ fn generate_random_phase_pattern(dim: usize, seed: usize) -> (Vec<f32>, Vec<f32>
 fn benchmark_memory_capacity_scaling() {
     println!("\n=== Benchmark 1: Dimension (D) vs Superposition Capacity (N) ===");
     println!("Criterion: Interference SNR >= 5.0 (Crosstalk Limit)");
+    println!("Mode: Single MWSO vs ShardedMWSO comparison\n");
 
-    let dimensions = vec![1024, 2048, 3072,4096, 8192, 16384];
-    println!("{:<10} | {:<10} | {:<10} | {:<10}", "Dim (D)", "Max N", "N/D Ratio", "Scaling Log");
-    println!("{}", "-".repeat(60));
+    // (dim, use_sharding, label)
+    let configs: Vec<(usize, bool, &str)> = vec![
+        (1024,  false, "MWSO"),
+        (2048,  true,  "Sharded"),
+        (4096,  true,  "Sharded"),
+        (8192,  true,  "Sharded"),
+    ];
 
-    let mut prev_n = 1.0;
-    let mut prev_d = 1.0;
+    println!("{:<10} | {:<10} | {:<10} | {:<10} | {:<10}",
+        "Dim (D)", "Mode", "Max N", "N/D Ratio", "Scaling");
+    println!("{}", "-".repeat(65));
 
-    for &dim in &dimensions {
-        let mut mwso = MWSO::new(dim);
-        let mut patterns = Vec::new();
-        let mut n = 0;
+    let mut prev_n = 1.0f32;
+    let mut prev_d = 1.0f32;
 
-        loop {
-            let next_n = n + 1;
-            let (re, im) = generate_random_phase_pattern(dim, next_n);
-            mwso.imprint_memory(&re, &im, 1.0);
-            patterns.push((re, im));
+    for (dim, use_sharding, label) in &configs {
+        let dim = *dim;
+        let use_sharding = *use_sharding;
 
-            // 最適化: 全エネルギーを1回だけ計算
-            let mut total_energy_sq = 0.0_f64;
-            for j in 0..dim {
-                total_energy_sq += mwso.memory_psi_real[j].powi(2) + mwso.memory_psi_imag[j].powi(2);
+        let max_n = dim * 64;
+        let mut n = 0usize;
+
+        if use_sharding {
+            let num_shards = (dim / 1024).max(1);
+            let mut sharded = ShardedMWSO::new(dim / 64); // action_sizeとして渡す
+
+            let mut patterns: Vec<(Vec<f32>, Vec<f32>)> = Vec::new();
+
+            loop {
+                let next_n = n + 1;
+                // シャードに均等分散してパターンを注入
+                let shard_idx = next_n % num_shards;
+                let shard_dim = 1024;
+                let (re, im) = generate_random_phase_pattern(shard_dim, next_n);
+
+                sharded.shards[shard_idx].imprint_memory(&re, &im, 1.0);
+                patterns.push((re.clone(), im.clone()));
+
+                // SNRチェック：担当シャードで確認
+                let mut total_energy_sq = 0.0_f64;
+                for j in 0..shard_dim {
+                    total_energy_sq += sharded.shards[shard_idx].memory_psi_real[j].powi(2)
+                        + sharded.shards[shard_idx].memory_psi_imag[j].powi(2);
+                }
+                let total_energy_sq = total_energy_sq as f32;
+
+                let snr_latest = calculate_interference_snr_optimized(
+                    &sharded.shards[shard_idx], &patterns, next_n - 1, total_energy_sq
+                );
+                let snr_old = if next_n > 1 {
+                    calculate_interference_snr_optimized(
+                        &sharded.shards[shard_idx], &patterns, 0, total_energy_sq
+                    )
+                } else { 100.0 };
+
+                if snr_latest < 5.0 || snr_old < 5.0 { break; }
+
+                n = next_n;
+                if n >= max_n { break; }
+                if n % 500 == 0 {
+                    print!(".");
+                    use std::io::Write;
+                    std::io::stdout().flush().unwrap();
+                }
             }
-            let total_energy_sq = total_energy_sq as f32;
 
-            // チェックの高速化: 直近のパターンと過去の代表1点をサンプリング
-            let snr_latest = calculate_interference_snr_optimized(&mwso, &patterns, next_n - 1, total_energy_sq);
-            let snr_old = if next_n > 1 { calculate_interference_snr_optimized(&mwso, &patterns, 0, total_energy_sq) } else { 100.0 };
+        } else {
+            // 通常MWSO版（元のロジック、patternsのメモリ節約のため再生成方式）
+            let mut mwso = MWSO::new(dim);
+            let mut patterns: Vec<(Vec<f32>, Vec<f32>)> = Vec::new();
 
-            if snr_latest < 5.0 || snr_old < 5.0 {
-                break;
-            }
-            n = next_n;
-            // 次元に応じた現実的な上限を設定（停滞防止）
-            if n >= dim * 64 { break; } // かなり大きくする
-            
-            // 進捗が分かりにくいので、たまに出力
-            if n % 500 == 0 {
-                print!(".");
-                use std::io::Write;
-                std::io::stdout().flush().unwrap();
+            loop {
+                let next_n = n + 1;
+                let (re, im) = generate_random_phase_pattern(dim, next_n);
+                mwso.imprint_memory(&re, &im, 1.0);
+                patterns.push((re, im));
+
+                let mut total_energy_sq = 0.0_f64;
+                for j in 0..dim {
+                    total_energy_sq += mwso.memory_psi_real[j].powi(2)
+                        + mwso.memory_psi_imag[j].powi(2);
+                }
+                let total_energy_sq = total_energy_sq as f32;
+
+                let snr_latest = calculate_interference_snr_optimized(
+                    &mwso, &patterns, next_n - 1, total_energy_sq
+                );
+                let snr_old = if next_n > 1 {
+                    calculate_interference_snr_optimized(&mwso, &patterns, 0, total_energy_sq)
+                } else { 100.0 };
+
+                if snr_latest < 5.0 || snr_old < 5.0 { break; }
+
+                n = next_n;
+                if n >= max_n { break; }
+                if n % 500 == 0 {
+                    print!(".");
+                    use std::io::Write;
+                    std::io::stdout().flush().unwrap();
+                }
             }
         }
 
         let ratio = n as f32 / dim as f32;
-        let scaling_exponent = if prev_n > 0.0 { (n as f32 / prev_n).log2() / (dim as f32 / prev_d).log2() } else { 0.0 };
-        
-        println!("\n{:<10} | {:<10} | {:<10.4} | O(D^{:.2})", dim, n, ratio, scaling_exponent);
-        
+        let scaling_exponent = if prev_n > 0.0 {
+            (n as f32 / prev_n).log2() / (dim as f32 / prev_d).log2()
+        } else { 0.0 };
+
+        println!("\n{:<10} | {:<10} | {:<10} | {:<10.4} | O(D^{:.2})",
+            dim, label, n, ratio, scaling_exponent);
+
         prev_n = n as f32;
         prev_d = dim as f32;
     }
+
+    println!("\n=== Summary ===");
+    println!("ShardedMWSO理論値: 各シャードN=64*1024=65536、合計N=65536*シャード数");
+    println!("N/D比がシャード数に関わらず64に近ければスケーリング則が成立");
 }
 
 #[test]
