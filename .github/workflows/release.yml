@@ -118,5 +118,7 @@ jobs:
         with:
           files: dark_singularity_api/target/*.jar
           generate_release_notes: true
+          # タグ名に '-' が含まれていればプレリリース、なければ正式版とする
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
