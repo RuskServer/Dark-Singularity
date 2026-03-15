@@ -123,6 +123,8 @@ Pre-training converged at episode {}.", episode);
             data.iprs.push(singularity.calculate_current_ipr());
         }
     }
+    let final_accuracy = recent_hits.iter().sum::<f32>() / recent_hits.len() as f32;
+    println!(" Final Accuracy: {:.2}", final_accuracy);
     println!(" Done.");
     data
 }

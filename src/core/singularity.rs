@@ -1,4 +1,3 @@
-use super::horizon::Horizon;
 use super::node::Node;
 use super::mwso::MWSO;
 use super::mwso::ShardedMWSO;
@@ -14,7 +13,6 @@ pub struct Experience {
 
 pub struct Singularity {
     pub nodes: Vec<Node>,
-    pub horizon: Horizon,
     pub mwso: MWSO,
     pub sharded_mwso: Option<ShardedMWSO>,
     pub bootstrapper: crate::core::knowledge::Bootstrapper,
@@ -70,7 +68,6 @@ impl Singularity {
         
         Self {
             nodes,
-            horizon: Horizon::new(),
             mwso: MWSO::new(required_dim),
             sharded_mwso: if use_sharding {
                 Some(ShardedMWSO::new(total_action_size))
@@ -145,7 +142,7 @@ impl Singularity {
         // --- Flow Injection (Temporal Smearing) ---
         // 現在の状態を 1.0 で注入
         if let Some(ref mut sharded) = self.sharded_mwso {
-            sharded.inject_state(state_idx, 1.0, &current_penalty_field);
+            sharded.inject_state(state_idx, 1.0, self.system_temperature, &current_penalty_field);
         } else {
             self.mwso.inject_state(state_idx, 1.0, &current_penalty_field);
         }
@@ -156,7 +153,7 @@ impl Singularity {
         for &prev_idx in self.input_history.iter().rev() {
         if let Some(ref mut sharded) = self.sharded_mwso {
                 // 全シャードに注入するが強度を弱める
-                sharded.inject_state(prev_idx, decay * 0.5, &current_penalty_field);
+                sharded.inject_state(prev_idx, decay * 0.5, self.system_temperature, &current_penalty_field);
             } else {
                 self.mwso.inject_state(prev_idx, decay, &current_penalty_field);
             }
@@ -336,7 +333,7 @@ impl Singularity {
         for exp in history_clone.iter().rev() {
             let discounted_reward = reward * discount;
             if let Some(ref mut sharded) = self.sharded_mwso {
-                sharded.adapt(discounted_reward, &exp.actions, self.system_temperature);
+                sharded.adapt(exp.state_idx, discounted_reward, &exp.actions, self.system_temperature);
 
                 // シャード間トンネルの学習
                 if discounted_reward > 0.1 && !sharded.shards.is_empty() {
@@ -469,8 +466,8 @@ impl Singularity {
         
         match &mut self.sharded_mwso {
             Some(sharded) => {
-                sharded.inject_state(0, reward, &self.empty_penalty);
-                sharded.inject_state(1, -penalty, &self.empty_penalty);
+                sharded.inject_state(0, reward, self.system_temperature, &self.empty_penalty);
+                sharded.inject_state(1, -penalty, self.system_temperature, &self.empty_penalty);
                 sharded.step_core(0.05, 0.0, 0.0, self.system_temperature, &self.empty_penalty);
             },
             None => {
@@ -487,8 +484,6 @@ impl Singularity {
         if urgency > 0.5 || (self.system_temperature - self.last_topology_update_temp).abs() > 0.05 {
             self.reshape_topology();
         }
-        let all_indices: Vec<usize> = (0..self.nodes.len()).collect();
-        self.horizon.regulate(self.system_temperature, &all_indices, &mut self.nodes);
     }
 
     pub fn reshape_topology(&mut self) {
@@ -501,13 +496,6 @@ impl Singularity {
         self.update_connection(self.idx_aggression, self.idx_reflex, arousal * 1.5);
         self.update_connection(self.idx_fear, self.idx_reflex, self.nodes[self.idx_fear].state * 2.0);
 
-        if self.system_temperature > 1.5 {
-            let glia_intervention = self.horizon.get_intervention_level();
-            if glia_intervention > 0.7 {
-                self.nodes[self.idx_aggression].apply_inhibition(0.3);
-                self.nodes[self.idx_fear].apply_inhibition(0.2);
-            }
-        }
         self.apply_elastic_fatigue();
     }
 
@@ -624,7 +612,7 @@ impl Singularity {
     pub fn save_to_file(&self, path: &str) -> io::Result<()> {
         let mut file = File::create(path)?;
         file.write_all(b"DSYM")?;
-        file.write_all(&13u32.to_le_bytes())?; 
+        file.write_all(&14u32.to_le_bytes())?; 
         file.write_all(&(self.state_size as u32).to_le_bytes())?;
         file.write_all(&self.system_temperature.to_le_bytes())?;
         file.write_all(&(if self.temperature_locked { 1u32 } else { 0u32 }).to_le_bytes())?;
@@ -634,7 +622,6 @@ impl Singularity {
         file.write_all(&self.morale.to_le_bytes())?;
         file.write_all(&self.patience.to_le_bytes())?;
         file.write_all(&self.exploration_beta.to_le_bytes())?;
-        file.write_all(&self.horizon.glutamate_buffer.to_le_bytes())?;
         for f in &self.fatigue_map { file.write_all(&f.to_le_bytes())?; }
         for m in &self.action_momentum { file.write_all(&m.to_le_bytes())?; }
         for g in &self.mwso.gravity_field { file.write_all(&g.to_le_bytes())?; }
@@ -692,7 +679,9 @@ impl Singularity {
         self.morale = read_f32(&mut cur);
         self.patience = read_f32(&mut cur);
         self.exploration_beta = read_f32(&mut cur);
-        self.horizon.glutamate_buffer = read_f32(&mut cur);
+        if version < 14 {
+            let _ = read_f32(&mut cur); // Skip glutamate_buffer in old versions
+        }
         
         for f in &mut self.fatigue_map { *f = read_f32(&mut cur); }
         for m in &mut self.action_momentum { *m = read_f32(&mut cur); }

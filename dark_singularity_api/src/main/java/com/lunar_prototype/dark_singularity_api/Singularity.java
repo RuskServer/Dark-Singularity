@@ -98,6 +98,8 @@ public class Singularity implements AutoCloseable {
     private native int[] selectActionsNative(long handle, float[] inputs);
     private native void learnNative(long handle, float reward);
     private native float getSystemTemperature(long handle);
+    /** @deprecated Horizon/Glia is removed. Returns 0.0. */
+    @Deprecated
     private native float getGliaActivityNative(long handle);
     private native float getActionScoreNative(long handle, int action_idx);
     private native float getFrustration(long handle);
@@ -156,6 +158,8 @@ public class Singularity implements AutoCloseable {
         return getSystemTemperature(handle);
     }
     
+    /** @deprecated Removed. Returns 0.0. */
+    @Deprecated
     public float getGliaActivity() {
         return getGliaActivityNative(handle);
     }

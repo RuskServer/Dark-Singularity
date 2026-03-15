@@ -418,6 +418,8 @@ pub struct ShardedMWSO {
     pub actions_per_shard: usize,
     // (from_shard, from_bin, to_shard, to_bin) -> strength
     pub inter_shard_tunnels: HashMap<(usize, usize, usize, usize), f32>,
+    // 状態とシャードの親和性 (state_idx -> shard_affinities)
+    pub state_affinities: HashMap<usize, Vec<f32>>,
 }
 
 impl ShardedMWSO {
@@ -436,6 +438,7 @@ impl ShardedMWSO {
             total_action_size,
             actions_per_shard,
             inter_shard_tunnels: HashMap::new(),
+            state_affinities: HashMap::new(),
         }
     }
  
@@ -490,30 +493,60 @@ impl ShardedMWSO {
         scores
     }
  
-    pub fn inject_state(&mut self, state_idx: usize, strength: f32, penalty_field: &[f32]) {
+    pub fn inject_state(&mut self, state_idx: usize, strength: f32, system_temp: f32, penalty_field: &[f32]) {
         if self.shards.is_empty() { return; }
 
-        // 1. state_idx を担当するシャードを決定
-        let responsible_shard_idx = state_idx % self.shards.len();
+        let num_shards = self.shards.len();
         
-        // 2. そのシャードに対応する penalty_field のスライスを準備
+        // 1. 状態に対するシャード親和性を取得・初期化
+        let affinities = self.state_affinities.entry(state_idx).or_insert_with(|| {
+            // 最初は全シャードに等しく分配（探索のため）
+            vec![1.0; num_shards]
+        });
+
+        // 2. 温度に応じた探索・分配重みの計算
+        // 高温時は全シャードに均等に近く、低温時は親和性の高いシャードに集中させる
+        let mut weights = vec![0.0; num_shards];
+        let mut total_weight = 0.0;
+        
+        // 温度が高いほど(2.0に近い)、base_prob が高くなり、全シャードが均等に選ばれやすくなる
+        let exploration_factor = (system_temp * 0.5).clamp(0.0, 1.0);
+        let base_prob = exploration_factor * (1.0 / num_shards as f32);
+
+        for i in 0..num_shards {
+            // 親和性と探索因子のハイブリッド重み
+            weights[i] = (affinities[i] * (1.0 - exploration_factor)) + base_prob;
+            total_weight += weights[i];
+        }
+
+        // 重みの正規化
+        if total_weight > 0.0 {
+            for w in &mut weights { *w /= total_weight; }
+        }
+
+        // 3. 各シャードに重みに応じた強度で注入
         let bin_per_action = self.shard_dim / self.actions_per_shard;
-        let action_start = responsible_shard_idx * self.actions_per_shard;
-        let action_end = (action_start + self.actions_per_shard).min(self.total_action_size);
+        for shard_idx in 0..num_shards {
+            let shard_weight = weights[shard_idx];
+            if shard_weight < 0.01 { continue; } // 微弱な場合はスキップして計算節約
 
-        let slice_start = action_start * bin_per_action;
-        let slice_end = action_end * bin_per_action;
+            let action_start = shard_idx * self.actions_per_shard;
+            let action_end = (action_start + self.actions_per_shard).min(self.total_action_size);
 
-        let mut local_penalty = vec![0.0f32; self.shard_dim];
-        if slice_end > slice_start && slice_end <= penalty_field.len() {
+            let slice_start = action_start * bin_per_action;
+            let slice_end = action_end * bin_per_action;
+
+            let mut local_penalty = vec![0.0f32; self.shard_dim];
+            if slice_end > slice_start && slice_end <= penalty_field.len() {
                 let relevant_slice = &penalty_field[slice_start..slice_end];
                 let local_penalty_len = relevant_slice.len();
                 local_penalty[..local_penalty_len].copy_from_slice(relevant_slice);
+            }
+
+            let shard = &mut self.shards[shard_idx];
+            // 状態インデックスは全シャード共通（または shard_dim で畳み込み）
+            shard.inject_state(state_idx % shard.dim, strength * shard_weight, &local_penalty);
         }
-        
-        // 3. 担当シャードにのみ状態を注入
-        let shard = &mut self.shards[responsible_shard_idx];
-        shard.inject_state(state_idx % shard.dim, strength, &local_penalty);
     }
  
     pub fn step_core(&mut self, dt: f32, speed_boost: f32, focus_factor: f32, system_temp: f32, penalty_field: &[f32]) {
@@ -553,26 +586,16 @@ impl ShardedMWSO {
             let shard_to = &mut self.shards[to_shard];
             shard_to.psi_real[to_bin] += delta_re;
             shard_to.psi_imag[to_bin] += delta_im;
-
-            // エネルギーを失う側（from） - 保存則のため後で適用
-            // self.shards[from_shard].psi_real[from_bin] -= delta_re;
-            // self.shards[from_shard].psi_imag[from_bin] -= delta_im;
-            // NOTE: エネルギー保存を厳密にすると発散しやすくなるため、一方的な注入（増幅）として実装する。
-            //       これにより、関連性の強いシャードの活動がブーストされる効果を狙う。
-            // TODO: この一方的なエネルギー注入は、関連活動をブーストする効果がある一方、
-            //       長期的にはシステムの不安定性を引き起こす可能性も否定できない。
-            //       将来的に、エネルギー保存則を考慮した、より安定した結合方法の検討も視野に入れる。
         }
 
         // 3. トンネル自体の自然減衰と枝刈り
-        //HashMap::retain を使うと効率的
         self.inter_shard_tunnels.retain(|_, strength| {
             *strength *= 0.995;
             *strength > 0.01
         });
     }
  
-    pub fn adapt(&mut self, reward: f32, last_actions: &[usize], system_temp: f32) {
+    pub fn adapt(&mut self, state_idx: usize, reward: f32, last_actions: &[usize], system_temp: f32) {
         for &action_idx in last_actions {
             let (shard_idx, local_action) = self.shard_for_action(action_idx);
             self.shards[shard_idx].adapt(
@@ -581,6 +604,23 @@ impl ShardedMWSO {
                 system_temp,
                 self.actions_per_shard,
             );
+
+            // 成功した場合、そのシャードと状態の親和性を強化
+            if reward > 0.1 {
+                let affinities = self.state_affinities.entry(state_idx).or_insert_with(|| {
+                    vec![1.0 / self.shards.len() as f32; self.shards.len()]
+                });
+                
+                // 親和性の強化
+                affinities[shard_idx] = (affinities[shard_idx] + reward * 0.1).min(2.0);
+
+                // 他のシャードの親和性を相対的に減衰（競合）
+                for i in 0..affinities.len() {
+                    if i != shard_idx {
+                        affinities[i] *= 0.95;
+                    }
+                }
+            }
         }
     }
  

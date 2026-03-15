@@ -115,11 +115,10 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_getGliaActivityNative(
     _env: JNIEnv,
     _class: JClass,
-    handle: jlong,
+    _handle: jlong,
 ) -> jfloat {
-    let singularity = unsafe { &*(handle as *const Singularity) };
-    // Horizon のバッファ状況から介入レベル(0.0-1.0)を取得
-    singularity.horizon.get_intervention_level() as jfloat
+    // Horizon is removed, homeostasis is now implicitly handled or obsolete
+    0.0
 }
 
 #[unsafe(no_mangle)]
