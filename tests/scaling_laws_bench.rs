@@ -83,7 +83,7 @@ fn benchmark_memory_capacity_scaling() {
                 for shard_idx in 0..num_shards {
                     if shard_done[shard_idx] { continue; }
 
-                    let pattern_id = global_n + shard_idx;
+                    let pattern_id = shard_idx * 100000 + shard_n[shard_idx];
                     let (re, im) = generate_random_phase_pattern(shard_dim, pattern_id);
                     sharded.shards[shard_idx].imprint_memory(&re, &im, 1.0);
                     shard_patterns[shard_idx].push((re, im));
