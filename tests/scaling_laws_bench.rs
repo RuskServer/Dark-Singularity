@@ -26,8 +26,12 @@ fn generate_random_phase_pattern(dim: usize, seed: usize) -> (Vec<f32>, Vec<f32>
     let mut re = vec![0.0; dim];
     let mut im = vec![0.0; dim];
     let inv_sqrt_dim = 1.0 / (dim as f32).sqrt();
+    
+    // u64でハッシュしてからf32に変換（精度問題を回避）
     for i in 0..dim {
-        let phase = (((i + seed * 123) as f32 * 0.618).rem_euclid(1.0)) * 2.0 * std::f32::consts::PI;
+        let hash = (i as u64).wrapping_mul(2654435761)
+            .wrapping_add(seed as u64).wrapping_mul(2246822519);
+        let phase = (hash as f32 / u64::MAX as f32) * 2.0 * std::f32::consts::PI;
         re[i] = phase.cos() * inv_sqrt_dim;
         im[i] = phase.sin() * inv_sqrt_dim;
     }
