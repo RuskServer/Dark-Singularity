@@ -17,7 +17,7 @@ fn benchmark_chaos_dynamic_adaptation() {
     let mut correct_count = 0;
     let mut window_correct = 0;
     let window_size = 200;
-    let total_steps = 2000;
+    let total_steps = 4000;
     
     // 1000ステップごとに「世界の法則（正解アクションのオフセット）」が変わる
     let mut law_offset = 0;
@@ -28,7 +28,7 @@ fn benchmark_chaos_dynamic_adaptation() {
         let state_idx = (x * (state_size as f32 - 1.0)) as usize;
 
         // 2. 動的な法則の適用
-        if i == 1000 {
+        if i == 2000 {
             println!("\n[EVENT] World Law Shifted! Re-adaptation required.");
             law_offset = 7; // 法則が変化
             window_correct = 0;
@@ -50,6 +50,8 @@ fn benchmark_chaos_dynamic_adaptation() {
         // 4. 学習（カオス環境下での報酬フィードバック）
         // 学習履歴（Time-series learning）がここで活きる
         let reward = if is_correct { 3.0 } else { -1.5 };
+        let expert_strength = if is_correct { 0.3 } else { 0.6 };
+        ai.observe_expert(state_idx, &[target_action], expert_strength);
         ai.learn(reward);
 
         // 5. 進捗表示

@@ -9,14 +9,28 @@ fn calculate_interference_snr_optimized(mwso: &MWSO, patterns: &Vec<(Vec<f32>, V
     
     let mut s_re = 0.0_f64;
     let mut s_im = 0.0_f64;
+    
+    // Reconstruct the key for target_idx
+    let offset = (target_idx as f32 * 1.618).rem_euclid(2.0 * std::f32::consts::PI);
+
     for j in 0..dim {
-        s_re += target_re[j] as f64 * mwso.memory_psi_real[j] + target_im[j] as f64 * mwso.memory_psi_imag[j];
-        s_im += target_re[j] as f64 * mwso.memory_psi_imag[j] - target_im[j] as f64 * mwso.memory_psi_real[j];
+        let sig_phase = mwso.scramble_phases[j] + offset;
+        let (sig_sin, sig_cos) = sig_phase.sin_cos();
+        let sig_re = sig_cos as f64;
+        let sig_im = sig_sin as f64;
+        
+        // Recall from PP-CEL memory: Recall = Memory * Key
+        // Memory stores Pattern * conj(Key_imprint)
+        let rec_re = mwso.q_memory_re[j] * sig_re - mwso.q_memory_im[j] * sig_im;
+        let rec_im = mwso.q_memory_re[j] * sig_im + mwso.q_memory_im[j] * sig_re;
+
+        // Dot product with target pattern
+        s_re += target_re[j] as f64 * rec_re + target_im[j] as f64 * rec_im;
     }
     let signal_sq = (s_re.powi(2) + s_im.powi(2)) as f32;
     
-    // Noise: 全エネルギーからターゲット信号成分を除いたもの
-    let noise_floor_sq = (total_energy_sq - signal_sq).max(0.0) / (patterns.len() as f32);
+    // Noise: Total energy minus the signal component
+    let noise_floor_sq = (total_energy_sq - signal_sq).max(0.0) / (patterns.len() as f32).max(1.0);
     
     if noise_floor_sq < 1e-10 { return 100.0; }
     (signal_sq / noise_floor_sq).sqrt()
@@ -89,7 +103,9 @@ fn benchmark_memory_capacity_scaling() {
 
                     let pattern_id = shard_idx * 100000 + shard_n[shard_idx];
                     let (re, im) = generate_random_phase_pattern(shard_dim, pattern_id);
-                    sharded.shards[shard_idx].imprint_memory(&re, &im, 1.0);
+                    sharded.shards[shard_idx].psi_real = re.clone();
+                    sharded.shards[shard_idx].psi_imag = im.clone();
+                    sharded.shards[shard_idx].imprint_qcel(shard_n[shard_idx], 1.0);
                     shard_patterns[shard_idx].push((re, im));
 
                     let next_n = shard_patterns[shard_idx].len();
@@ -104,8 +120,8 @@ fn benchmark_memory_capacity_scaling() {
                     let mut total_energy_sq = 0.0_f64;
                     for j in 0..shard_dim {
                         total_energy_sq +=
-                            sharded.shards[shard_idx].memory_psi_real[j].powi(2)
-                            + sharded.shards[shard_idx].memory_psi_imag[j].powi(2);
+                            sharded.shards[shard_idx].q_memory_re[j].powi(2)
+                            + sharded.shards[shard_idx].q_memory_im[j].powi(2);
                     }
                     let total_energy_sq = total_energy_sq as f32;
 
@@ -159,13 +175,15 @@ fn benchmark_memory_capacity_scaling() {
             loop {
                 let next_n = total_n + 1;
                 let (re, im) = generate_random_phase_pattern(dim, next_n);
-                mwso.imprint_memory(&re, &im, 1.0);
+                mwso.psi_real = re.clone();
+                mwso.psi_imag = im.clone();
+                mwso.imprint_qcel(total_n, 1.0);
                 patterns.push((re, im));
 
                 let mut total_energy_sq = 0.0_f64;
                 for j in 0..dim {
-                    total_energy_sq += mwso.memory_psi_real[j].powi(2)
-                        + mwso.memory_psi_imag[j].powi(2);
+                    total_energy_sq += mwso.q_memory_re[j].powi(2)
+                        + mwso.q_memory_im[j].powi(2);
                 }
                 let total_energy_sq = total_energy_sq as f32;
 
