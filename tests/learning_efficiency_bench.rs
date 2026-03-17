@@ -54,7 +54,7 @@ fn run_convergence_tracking(name: &str, action_size: usize, is_rule: bool) -> Tr
         // 正解を直接教える（毎ステップ）
         // 不正解時は強めに、正解時は弱めに注入
         let expert_strength = if is_correct { 0.3 } else { 0.8 };
-        singularity.observe_expert(state_idx, &[correct_action], expert_strength);
+        //singularity.observe_expert(state_idx, &[correct_action], expert_strength);
 
         singularity.learn(reward);
 
@@ -96,6 +96,18 @@ fn run_convergence_tracking(name: &str, action_size: usize, is_rule: bool) -> Tr
         }
     }
     println!(" Done.");
+
+    // --- Final Validation Pass ---
+    let mut final_hits = 0;
+    for state_idx in 0..state_size {
+        let actions = singularity.select_actions(state_idx);
+        if actions[0] as usize == target_map[state_idx] {
+            final_hits += 1;
+        }
+    }
+    let final_accuracy = final_hits as f32 / state_size as f32;
+    println!(" > FINAL VALIDATION ACCURACY: {:.2}%", final_accuracy * 100.0);
+
     data
 }
 
@@ -107,6 +119,8 @@ fn bench_convergence_plot() -> Result<(), Box<dyn std::error::Error>> {
         ("2048-Rule", run_convergence_tracking("2048-Rule", 32, true)),
         ("2048-Normal", run_convergence_tracking("2048-Normal", 32, false)),
     ];
+
+    // ... (plotting code) ...
 
     let root = BitMapBackend::new("convergence_graph_rust.png", (1024, 1024)).into_drawing_area();
     root.fill(&WHITE)?;

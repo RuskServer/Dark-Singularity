@@ -12,10 +12,14 @@ pub struct MWSO {
     pub gravity_field: Vec<f32>, 
     pub entanglements: Vec<(usize, usize, f32)>, 
     
-    // --- Global Memory Wave (Quantum Superposition) ---
-    // A single wave that stores multiple experiences through interference patterns.
-    pub memory_psi_real: Vec<f64>,
-    pub memory_psi_imag: Vec<f64>,
+    // --- Q-CEL: Quantum-Correlated Energy Landscape ---
+    // A unified holographic correlation field between inputs and states.
+    pub q_memory_re: Vec<f64>,
+    pub q_memory_im: Vec<f64>,
+    pub energy_landscape: Vec<f32>, // Dynamic potential field (V)
+    pub input_signature: Vec<f32>,  // Quantized current input (Query)
+    
+    pub scramble_phases: Vec<f32>,
     
     pub dim: usize,
     pub rng_seed: u64,
@@ -28,6 +32,13 @@ impl MWSO {
         let mut frequencies = vec![0.0; dim];
         for i in 0..theta_size { theta[i] = (i as f32 * 0.1).sin() * 0.1; }
         for i in 0..dim { frequencies[i] = (i as f32 / dim as f32).powi(2) * 2.0 * PI; }
+        
+        let mut scramble_phases = vec![0.0; dim];
+        for i in 0..dim {
+            // Deterministic random phases based on Golden Ratio
+            scramble_phases[i] = (i as f32 * 1.61803398875).rem_euclid(2.0 * PI);
+        }
+
         let mut entanglements = Vec::new();
         // --- Small-World Network Construction ---
         // Add 5% random long-range connections (wormholes)
@@ -50,8 +61,11 @@ impl MWSO {
             frequencies, 
             gravity_field: vec![0.0; dim],
             entanglements,
-            memory_psi_real: vec![0.0; dim],
-            memory_psi_imag: vec![0.0; dim],
+            q_memory_re: vec![0.0; dim],
+            q_memory_im: vec![0.0; dim],
+            energy_landscape: vec![0.0; dim],
+            input_signature: vec![0.0; dim],
+            scramble_phases,
             dim,
             rng_seed: 0xDEADBEEF,
         }
@@ -68,36 +82,40 @@ impl MWSO {
         }
     }
 
-    /// Imprints a state into the global memory wave via superposition.
-    /// This uses holographic principles where coherent patterns add up and noise cancels out.
-    pub fn imprint_memory(&mut self, psi_real: &[f32], psi_imag: &[f32], strength: f32) {
-        if psi_real.len() != self.dim || psi_imag.len() != self.dim { return; }
-        
-        // 次元数に応じた適応的強度
+    /// Q-CEL: Imprints the correlation between the quantized input and the current state.
+    pub fn imprint_qcel(&mut self, input_idx: usize, strength: f32) {
+        // 1. Quantize Input: Generate a basis vector (signature) for the input_idx.
+        // This acts as the "Key" in the query-key memory model.
+        let offset = (input_idx as f32 * 1.618).rem_euclid(2.0 * PI);
         let adaptive_strength = strength as f64 * (1024.0 / self.dim as f32).sqrt() as f64;
 
         for i in 0..self.dim {
-            // 位相を保持したまま重畳（干渉）
-            self.memory_psi_real[i] += psi_real[i] as f64 * adaptive_strength;
-            self.memory_psi_imag[i] += psi_imag[i] as f64 * adaptive_strength;
+            let sig_phase = self.scramble_phases[i] + offset;
+            let (sig_sin, sig_cos) = sig_phase.sin_cos();
             
-            // 自己組織化：微弱な減衰（古い記憶の蒸発）
-            self.memory_psi_real[i] *= 0.9995;
-            self.memory_psi_imag[i] *= 0.9995;
+            // 2. Correlation: Compute the outer product of (psi) and (input_signature).
+            // We store the correlation as: Memory += PSI * conj(Signature)
+            let corr_re = (self.psi_real[i] * sig_cos + self.psi_imag[i] * sig_sin) as f64;
+            let corr_im = (self.psi_imag[i] * sig_cos - self.psi_real[i] * sig_sin) as f64;
+            
+            self.q_memory_re[i] += corr_re * adaptive_strength;
+            self.q_memory_im[i] += corr_im * adaptive_strength;
+            
+            // Self-organizing decay (forgetting curve)
+            self.q_memory_re[i] *= 0.9997;
+            self.q_memory_im[i] *= 0.9997;
         }
-        
-        // 記憶のエネルギーを一定に保つ（過学習・発散防止）
-        let target = (self.dim as f64 * 0.05).min(50.0); 
-        self.normalize_memory(target);
+
+        self.normalize_q_memory((self.dim as f64 * 0.05).min(50.0));
     }
 
-    fn normalize_memory(&mut self, target_norm: f64) {
+    fn normalize_q_memory(&mut self, target_norm: f64) {
         let mut total_energy_sq = 0.0;
-        for i in 0..self.dim { total_energy_sq += self.memory_psi_real[i].powi(2) + self.memory_psi_imag[i].powi(2); }
+        for i in 0..self.dim { total_energy_sq += self.q_memory_re[i].powi(2) + self.q_memory_im[i].powi(2); }
         let norm = total_energy_sq.sqrt();
         if norm > 1e-12 {
             let factor = target_norm / norm;
-            for i in 0..self.dim { self.memory_psi_real[i] *= factor; self.memory_psi_imag[i] *= factor; }
+            for i in 0..self.dim { self.q_memory_re[i] *= factor; self.q_memory_im[i] *= factor; }
         }
     }
 
@@ -123,90 +141,117 @@ impl MWSO {
     pub fn step_core(&mut self, dt: f32, speed_boost: f32, focus_factor: f32, system_temp: f32, penalty_field: &[f32]) {
         let solidification = 0.9999 - (0.0005 * (1.0 - focus_factor));
         let effective_dt = dt * (1.0 + speed_boost);
-
-        // --- 1. 干渉パターンの事前検知 (Interference Pre-detection) ---
-        // 現在の波(psi)と記憶(memory_psi)が「どの程度建設的に干渉しているか」を局所的に計算
-        // これを「予兆」として重力場に一時的にフィードバックする
-        let mut local_resonance = vec![0.0; self.dim];
-        let mut total_resonance = 0.0;
-        for i in 0..self.dim {
-            let res = (self.psi_real[i] * self.memory_psi_real[i] as f32 + 
-                    self.psi_imag[i] * self.memory_psi_imag[i] as f32).max(0.0);
-            local_resonance[i] = res;
-            total_resonance += res;
-        }
-
-        // --- 2. 「成功の記憶」を「重力」に変換 ---
-        // 過去の成功（memory_psi）が強い場所に、動的な重力（吸引力）を発生させる
-        // これにより、偶然を待たずとも波が「過去の栄光」の方へ引き寄せられる
-        for i in 0..self.dim {
-            let mem_intensity = (self.memory_psi_real[i].powi(2) + self.memory_psi_imag[i].powi(2)) as f32;
-            // 既存の重力場に、現在の共鳴予兆と記憶の強度をブレンド
-            // system_temp が低いほど、この「重力」は強固に固定される
-            let attraction = (mem_intensity.sqrt() * 0.1 + local_resonance[i] * 0.5) * (1.0 / (system_temp + 0.1));
-            self.gravity_field[i] = self.gravity_field[i] * 0.95 + attraction * 0.05;
-        }
-
-        // メモリ効果の計算（既存ロジック）
-        let mut overlap_re = 0.0_f64;
-        let mut overlap_im = 0.0_f64;
-        for i in 0..self.dim {
-            overlap_re += self.psi_real[i] as f64 * self.memory_psi_real[i] + self.psi_imag[i] as f64 * self.memory_psi_imag[i];
-            overlap_im += self.psi_real[i] as f64 * self.memory_psi_imag[i] - self.psi_imag[i] as f64 * self.memory_psi_real[i];
-        }
-        let resonance_sq = (overlap_re.powi(2) + overlap_im.powi(2)) as f32;
-        let memory_effect = ((resonance_sq.sqrt() / (self.dim as f32).sqrt()) * 0.5).min(1.0);        
         let dim_scale = (self.dim as f32).sqrt();
 
+        // --- 1. Q-CEL Retrieval (Query-Key Matching) ---
+        // Retrieve a superposed "recall wave" by correlating current input_signature with q_memory.
+        let mut recall_re = vec![0.0; self.dim];
+        let mut recall_im = vec![0.0; self.dim];
+
+        for i in 0..self.dim {
+            let sig_re = self.input_signature[i];
+            recall_re[i] = self.q_memory_re[i] as f32 * sig_re;
+            recall_im[i] = self.q_memory_im[i] as f32 * sig_re;
+        }
+
+        // --- 2. Dynamic Energy Landscape (V) with Thermal Fluctuation ---
+        // High temp = high fluctuation + more smoothing (flatness)
+        let thermal_noise = (system_temp * 0.3).max(0.01);
+        let smoothing = (system_temp * 0.4).clamp(0.1, 0.95);
+
+        for i in 0..self.dim {
+            let recall_intensity = (recall_re[i].powi(2) + recall_im[i].powi(2)).sqrt();
+            let penalty = penalty_field.get(i).cloned().unwrap_or(0.0);
+            
+            // Stochastic V: Base + Noise
+            let noise = (self.next_rng() - 0.5) * thermal_noise;
+            let target_v = -recall_intensity * 2.0 * focus_factor + penalty * 5.0 + noise;
+            
+            // Landscape smoothing prevents rapid local pinning
+            self.energy_landscape[i] = self.energy_landscape[i] * smoothing + target_v * (1.0 - smoothing);
+        }
+
+        // --- 3. Wave Evolution ---
         for i in 0..self.dim {
             self.theta[i] *= solidification;
             self.theta[i + self.dim] *= solidification;
 
             let (re, im) = (self.psi_real[i], self.psi_imag[i]);
-            let (sin_w, cos_w) = (self.frequencies[i] * effective_dt).sin_cos();   
-            let new_re = re * cos_w - im * sin_w;
-            let new_im = re * sin_w + im * cos_w;
-
-            // --- 3. 重力による位相の引き寄せ (Gravity-Induced Phase Pull) ---
-            // 重力場(gravity_field)が強い地点では、波の拡散を抑え、中心へ引き寄せる力として働く
-            let gravity = self.gravity_field[i];
-            // 重力は「粘性を下げる」のではなく「メモリフローを加速させる」だけにする
-            let pull_re = self.memory_psi_real[i] as f32 * gravity * focus_factor * 2.0; 
-            let pull_im = self.memory_psi_imag[i] as f32 * gravity * focus_factor * 2.0;
-
-            let coupling_resonance = self.theta[i] * (self.psi_real[(i + 1) % self.dim] + self.psi_real[if i == 0 { self.dim - 1 } else { i - 1 }]) / dim_scale;
             
-            // recall と gravity_pull を合成
-            self.psi_real[i] = new_re + (coupling_resonance + (self.memory_psi_real[i] as f32 * memory_effect) + pull_re) * effective_dt * (1.0 + focus_factor);
-            self.psi_imag[i] = new_im + (self.memory_psi_imag[i] as f32 * memory_effect + pull_im) * effective_dt * (1.0 + focus_factor);
+            // Energy-driven phase shift: omega_eff = omega + V
+            let v = self.energy_landscape[i];
+            let phase_shift = (self.frequencies[i] + v) * effective_dt;
+            let (sin_w, cos_w) = phase_shift.sin_cos();   
             
-            // 粘性（Viscosity）の計算
+            let mut new_re = re * cos_w - im * sin_w;
+            let mut new_im = re * sin_w + im * cos_w;
+
+            // Direct injection of recalled statistical patterns (Tunneling/Superposition)
+            let recall_boost = (1.0 + focus_factor) * (1.0 / (system_temp + 0.1));
+            new_re += recall_re[i] * recall_boost * effective_dt;
+            new_im += recall_im[i] * recall_boost * effective_dt;
+
+            // Spatial coupling (Resonance)
+            let neighbor_re = self.psi_real[(i + 1) % self.dim] + self.psi_real[if i == 0 { self.dim - 1 } else { i - 1 }];
+            let coupling = self.theta[i] * neighbor_re / dim_scale;
+            
+            self.psi_real[i] = new_re + coupling * effective_dt;
+            self.psi_imag[i] = new_im;
+
+            // Viscosity / Damping
             let penalty = penalty_field.get(i).cloned().unwrap_or(0.0);
-            let base_viscosity = 0.03 * (1.1 - self.theta[i + self.dim].clamp(-1.0, 1.0).abs());
-            
-            // 重力がある場所は粘性が下がり（通りやすくなり）、ペナルティがある場所は粘性が上がる（壁になる）
-            let viscosity = base_viscosity * (1.0 - gravity.min(0.9)) + penalty * 0.15; 
-
+            let viscosity = 0.02 * (1.0 + penalty);
             self.psi_real[i] *= (1.0 - viscosity * effective_dt).max(0.0);
             self.psi_imag[i] *= (1.0 - viscosity * effective_dt).max(0.0);
         }
 
-        // ワームホールによる量子もつれ（エネルギー保存型 exchange）
-        for &(a, b, strength) in &self.entanglements {
-            let p1_real = self.psi_real[a];
-            let p1_imag = self.psi_imag[a];
+        // Gravity field (now derived from recall and psi coincidence)
+        for i in 0..self.dim {
+            let coincidence = (self.psi_real[i] * recall_re[i] + self.psi_imag[i] * recall_im[i]).max(0.0);
+            self.gravity_field[i] = self.gravity_field[i] * 0.98 + coincidence * 0.02;
+        }
+
+        // --- 4. Boltzmann-like Multimodal Gating ---
+        // Allow multiple solution peaks to coexist based on temperature.
+        let mut total_e = 0.0;
+        for i in 0..self.dim { total_e += self.psi_real[i].powi(2) + self.psi_imag[i].powi(2); }
+        let avg_e = total_e / self.dim as f32;
+        
+        // Beta: Inverse temperature. High temp = low beta = uniform gating.
+        let beta = (1.5 / (system_temp + 0.5)).clamp(0.5, 3.0);
+
+        for i in 0..self.dim {
+            let e = self.psi_real[i].powi(2) + self.psi_imag[i].powi(2);
+            let ratio = e / (avg_e + 1e-6);
             
-            let delta_re = p1_real * strength * effective_dt;
-            let delta_im = p1_imag * strength * effective_dt;
-            
-            self.psi_real[b] += delta_re;
-            self.psi_imag[b] += delta_im;
-            self.psi_real[a] -= delta_re; // エネルギー保存
-            self.psi_imag[a] -= delta_im;
+            // Soft gating: allow multiple peaks that are above avg_e.
+            let gate = ratio.powf(beta).clamp(0.1, 4.0);
+            self.psi_real[i] *= gate;
+            self.psi_imag[i] *= gate;
         }
 
         let target_norm = 1.0 + (system_temp * 0.5).min(1.5);
         self.normalize(target_norm);
+    }
+
+    /// Sets the current input query signature for Q-CEL retrieval.
+    /// Distributed signature for better multimodal overlap.
+    pub fn set_input_query(&mut self, input_idx: usize, strength: f32) {
+        let offset = (input_idx as f32 * 1.618).rem_euclid(2.0 * PI);
+        let spread = 3; // Number of neighboring indices to influence
+
+        for i in 0..self.dim {
+            self.input_signature[i] *= 0.8; // Momentum-like decay for smooth transition
+        }
+
+        for j in 0..spread {
+            let idx_offset = (offset + j as f32 * 0.1).rem_euclid(2.0 * PI);
+            let weight = 1.0 / (j + 1) as f32;
+            for i in 0..self.dim {
+                let sig_phase = self.scramble_phases[i] + idx_offset;
+                self.input_signature[i] += sig_phase.cos() * strength * weight;
+            }
+        }
     }
 
     fn normalize(&mut self, target_norm: f32) {
@@ -246,7 +291,7 @@ impl MWSO {
         scores
     }
 
-    pub fn adapt(&mut self, reward: f32, last_actions: &[usize], system_temp: f32, action_size: usize) {
+    pub fn adapt(&mut self, state_idx: usize, reward: f32, last_actions: &[usize], system_temp: f32, action_size: usize) {
         // 高次元ほど学習を慎重に（勾配爆発的な位相変化を防ぐ）
         let dim_factor = (1024.0 / self.dim as f32).sqrt().min(1.0);
         let annealing = (system_temp * 0.5).clamp(0.1, 1.0);
@@ -264,12 +309,10 @@ impl MWSO {
                     self.gravity_field[idx] = (self.gravity_field[idx] + 0.1 * dim_factor).min(1.0);
                 }
                 
-                // --- Holographic Imprinting (Refined) ---
+                // --- Q-CEL Imprinting ---
                 // Confident patterns (low temp) are imprinted with higher fidelity.
                 let fidelity = (1.1 - system_temp * 0.5).clamp(0.2, 1.0);
-                let psi_re = self.psi_real.clone();
-                let psi_im = self.psi_imag.clone();
-                self.imprint_memory(&psi_re, &psi_im, reward * fidelity as f32);
+                self.imprint_qcel(state_idx, reward * fidelity as f32);
             }
 
             if reward < 0.0 {
@@ -526,9 +569,15 @@ impl ShardedMWSO {
 
         // 3. 各シャードに重みに応じた強度で注入
         let bin_per_action = self.shard_dim / self.actions_per_shard;
+        
+        // 動的なノイズカット閾値（シャード数に応じた平均の半分以下なら切る）
+        let cutoff_threshold = (1.0 / num_shards as f32) * 0.5 * (1.0 - system_temp).max(0.1);
+
         for shard_idx in 0..num_shards {
             let shard_weight = weights[shard_idx];
-            if shard_weight < 0.01 { continue; } // 微弱な場合はスキップして計算節約
+            
+            // 閾値未満のシャードには状態を注入しない（無駄な波を立てない）
+            if shard_weight < cutoff_threshold { continue; }
 
             let action_start = shard_idx * self.actions_per_shard;
             let action_end = (action_start + self.actions_per_shard).min(self.total_action_size);
@@ -544,7 +593,9 @@ impl ShardedMWSO {
             }
 
             let shard = &mut self.shards[shard_idx];
-            // 状態インデックスは全シャード共通（または shard_dim で畳み込み）
+            // Q-CEL: Set the input query for this shard
+            shard.set_input_query(state_idx, strength * shard_weight);
+            // Also inject some energy into the state representation
             shard.inject_state(state_idx % shard.dim, strength * shard_weight, &local_penalty);
         }
     }
@@ -599,6 +650,7 @@ impl ShardedMWSO {
         for &action_idx in last_actions {
             let (shard_idx, local_action) = self.shard_for_action(action_idx);
             self.shards[shard_idx].adapt(
+                state_idx,
                 reward,
                 &[local_action],
                 system_temp,

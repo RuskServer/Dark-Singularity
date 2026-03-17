@@ -348,7 +348,7 @@ impl Singularity {
                     }
                 }
             } else {
-                self.mwso.adapt(discounted_reward, &exp.actions, self.system_temperature, self.action_size);
+                self.mwso.adapt(exp.state_idx, discounted_reward, &exp.actions, self.system_temperature, self.action_size);
             }
 
             if self.active_conditions.is_empty() {
