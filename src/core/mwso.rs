@@ -12,10 +12,11 @@ pub struct MWSO {
     pub gravity_field: Vec<f32>, 
     pub entanglements: Vec<(usize, usize, f32)>, 
     
-    // --- Q-CEL: Quantum-Correlated Energy Landscape ---
-    // A unified holographic correlation field between inputs and states.
+    // --- PP-CEL: Pure-Phase Correlated Energy Landscape ---
     pub q_memory_re: Vec<f64>,
     pub q_memory_im: Vec<f64>,
+    pub q_topo_re: Vec<f64>,   // Topological correlation (Gradients)
+    pub q_topo_im: Vec<f64>,
     pub energy_landscape: Vec<f32>, // Dynamic potential field (V)
     pub input_signature: Vec<f32>,  // Quantized current input (Query)
     
@@ -63,6 +64,8 @@ impl MWSO {
             entanglements,
             q_memory_re: vec![0.0; dim],
             q_memory_im: vec![0.0; dim],
+            q_topo_re: vec![0.0; dim],
+            q_topo_im: vec![0.0; dim],
             energy_landscape: vec![0.0; dim],
             input_signature: vec![0.0; dim],
             scramble_phases,
@@ -82,31 +85,77 @@ impl MWSO {
         }
     }
 
-    /// Q-CEL: Imprints the correlation between the quantized input and the current state.
-    pub fn imprint_qcel(&mut self, input_idx: usize, strength: f32) {
-        // 1. Quantize Input: Generate a basis vector (signature) for the input_idx.
-        // This acts as the "Key" in the query-key memory model.
+    /// PP-CEL: Pure-Phase Correlated Energy Landscape Imprinting.
+    /// Uses pure phase correlations weighted by reward (alpha) with normalization.
+    pub fn imprint_qcel(&mut self, input_idx: usize, reward: f32) {
+        // Alpha: Weight of the memory update (Reward/Confidence)
+        let alpha = reward.max(0.1) as f64;
         let offset = (input_idx as f32 * 1.618).rem_euclid(2.0 * PI);
-        let adaptive_strength = strength as f64 * (1024.0 / self.dim as f32).sqrt() as f64;
+        
+        // Decay factor (Improvement 4: M = (1-lambda)M + alpha*Update)
+        let lambda = 0.002;
+        let dim_norm = (self.dim as f64).sqrt();
 
         for i in 0..self.dim {
+            let next_i = (i + 1) % self.dim;
+
+            // 1. Pointwise correlation (Standard PP-CEL)
+            let psi_re = self.psi_real[i] as f64;
+            let psi_im = self.psi_imag[i] as f64;
+            let psi_mag = (psi_re.powi(2) + psi_im.powi(2)).sqrt() + 1e-9;
+            let u_psi_re = psi_re / psi_mag;
+            let u_psi_im = psi_im / psi_mag;
+
             let sig_phase = self.scramble_phases[i] + offset;
             let (sig_sin, sig_cos) = sig_phase.sin_cos();
+            let sig_re = sig_cos as f64;
+            let sig_im = sig_sin as f64;
+
+            let corr_re = u_psi_re * sig_re + u_psi_im * sig_im;
+            let corr_im = u_psi_im * sig_re - u_psi_re * sig_im;
             
-            // 2. Correlation: Compute the outer product of (psi) and (input_signature).
-            // We store the correlation as: Memory += PSI * conj(Signature)
-            let corr_re = (self.psi_real[i] * sig_cos + self.psi_imag[i] * sig_sin) as f64;
-            let corr_im = (self.psi_imag[i] * sig_cos - self.psi_real[i] * sig_sin) as f64;
+            self.q_memory_re[i] = self.q_memory_re[i] * (1.0 - lambda) + corr_re * alpha / dim_norm;
+            self.q_memory_im[i] = self.q_memory_im[i] * (1.0 - lambda) + corr_im * alpha / dim_norm;
+
+            // 2. Topological Gradient Correlation (Phase differences)
+            let psi_re_next = self.psi_real[next_i] as f64;
+            let psi_im_next = self.psi_imag[next_i] as f64;
+            let psi_mag_next = (psi_re_next.powi(2) + psi_im_next.powi(2)).sqrt() + 1e-9;
+            let u_psi_re_next = psi_re_next / psi_mag_next;
+            let u_psi_im_next = psi_im_next / psi_mag_next;
+
+            // Delta PSI (Relative phase between neighbors)
+            let d_psi_re = u_psi_re * u_psi_re_next + u_psi_im * u_psi_im_next;
+            let d_psi_im = u_psi_im * u_psi_re_next - u_psi_re * u_psi_im_next;
+
+            let sig_phase_next = self.scramble_phases[next_i] + offset;
+            let (sig_sin_next, sig_cos_next) = sig_phase_next.sin_cos();
             
-            self.q_memory_re[i] += corr_re * adaptive_strength;
-            self.q_memory_im[i] += corr_im * adaptive_strength;
-            
-            // Self-organizing decay (forgetting curve)
-            self.q_memory_re[i] *= 0.9997;
-            self.q_memory_im[i] *= 0.9997;
+            // Delta SIG (Relative phase of input signature)
+            let d_sig_re = (sig_cos * sig_cos_next as f32 + sig_sin * sig_sin_next as f32) as f64;
+            let d_sig_im = (sig_sin * sig_cos_next as f32 - sig_cos * sig_sin_next as f32) as f64;
+
+            // Correlate the "shapes" (phase twists)
+            let topo_re = d_psi_re * d_sig_re + d_psi_im * d_sig_im;
+            let topo_im = d_psi_im * d_sig_re - d_psi_re * d_sig_im;
+
+            self.q_topo_re[i] = self.q_topo_re[i] * (1.0 - lambda) + topo_re * alpha / dim_norm;
+            self.q_topo_im[i] = self.q_topo_im[i] * (1.0 - lambda) + topo_im * alpha / dim_norm;
         }
 
-        self.normalize_q_memory((self.dim as f64 * 0.05).min(50.0));
+        // Keep memories bounded
+        self.normalize_q_memory(5.0);
+        self.normalize_q_topo(3.0);
+    }
+
+    fn normalize_q_topo(&mut self, target_norm: f64) {
+        let mut total_energy_sq = 0.0;
+        for i in 0..self.dim { total_energy_sq += self.q_topo_re[i].powi(2) + self.q_topo_im[i].powi(2); }
+        let norm = total_energy_sq.sqrt();
+        if norm > 1e-12 {
+            let factor = target_norm / norm;
+            for i in 0..self.dim { self.q_topo_re[i] *= factor; self.q_topo_im[i] *= factor; }
+        }
     }
 
     fn normalize_q_memory(&mut self, target_norm: f64) {
@@ -143,15 +192,53 @@ impl MWSO {
         let effective_dt = dt * (1.0 + speed_boost);
         let dim_scale = (self.dim as f32).sqrt();
 
-        // --- 1. Q-CEL Retrieval (Query-Key Matching) ---
-        // Retrieve a superposed "recall wave" by correlating current input_signature with q_memory.
+        // --- 1. PP-CEL Retrieval (Phase-Gated Key Matching) ---
+        // Retrieve a superposed "recall wave" by gating the correlation between 
+        // current input_signature and q_memory using Cosine Similarity.
         let mut recall_re = vec![0.0; self.dim];
         let mut recall_im = vec![0.0; self.dim];
+        
+        // Gate threshold (Improvement 2: theta)
+        // High temp = lower threshold (allow more noise), Low temp = stricter matching.
+        let gate_theta = (0.3 + system_temp * 0.4).clamp(0.2, 0.8);
 
         for i in 0..self.dim {
-            let sig_re = self.input_signature[i];
-            recall_re[i] = self.q_memory_re[i] as f32 * sig_re;
-            recall_im[i] = self.q_memory_im[i] as f32 * sig_re;
+            let next_i = (i + 1) % self.dim;
+            let sig_re = self.input_signature[i] as f64;
+            let sig_im = (self.scramble_phases[i] + self.rng_seed as f32).sin() as f64 * 0.1;
+
+            let sig_mag = (sig_re.powi(2) + sig_im.powi(2)).sqrt() + 1e-9;
+            let u_sig_re = sig_re / sig_mag;
+            let u_sig_im = sig_im / sig_mag;
+
+            // 1. Pointwise Recall
+            let rec_re = self.q_memory_re[i] * u_sig_re - self.q_memory_im[i] * u_sig_im;
+            let rec_im = self.q_memory_re[i] * u_sig_im + self.q_memory_im[i] * u_sig_re;
+
+            // 2. Topological Shape Matching (Coherence Filter)
+            // Calculate current local gradient in the query
+            let sig_re_next = self.input_signature[next_i] as f64;
+            let sig_im_next = (self.scramble_phases[next_i] + self.rng_seed as f32).sin() as f64 * 0.1;
+            let sig_mag_next = (sig_re_next.powi(2) + sig_im_next.powi(2)).sqrt() + 1e-9;
+            
+            // Delta SIG (Relative phase of current query neighbors)
+            let d_sig_re = (u_sig_re * (sig_re_next / sig_mag_next) + u_sig_im * (sig_im_next / sig_mag_next));
+            let d_sig_im = (u_sig_im * (sig_re_next / sig_mag_next) - u_sig_re * (sig_im_next / sig_mag_next));
+
+            // Matching with stored Topological patterns
+            let topo_match = (self.q_topo_re[i] * d_sig_re + self.q_topo_im[i] * d_sig_im).max(0.0);
+            let shape_coherence = (topo_match as f32 * 2.0).clamp(0.5, 2.5);
+
+            // g(corr): Cosine Similarity Gate with Shape Coherence boost
+            let corr_strength = (rec_re.powi(2) + rec_im.powi(2)).sqrt();
+            let gate = if corr_strength > (gate_theta as f64 / shape_coherence as f64) {
+                ((corr_strength * shape_coherence as f64) - gate_theta as f64).max(0.0) / (1.0 - gate_theta as f64)
+            } else {
+                0.0
+            };
+
+            recall_re[i] = (rec_re * gate) as f32;
+            recall_im[i] = (rec_im * gate) as f32;
         }
 
         // --- 2. Dynamic Energy Landscape (V) with Thermal Fluctuation ---
@@ -241,7 +328,7 @@ impl MWSO {
         let spread = 3; // Number of neighboring indices to influence
 
         for i in 0..self.dim {
-            self.input_signature[i] *= 0.8; // Momentum-like decay for smooth transition
+            self.input_signature[i] *= 0.7; // Momentum-like decay
         }
 
         for j in 0..spread {
@@ -252,6 +339,12 @@ impl MWSO {
                 self.input_signature[i] += sig_phase.cos() * strength * weight;
             }
         }
+
+        // Improvement 3: Normalize signature energy
+        let mut total_sig = 1e-9;
+        for i in 0..self.dim { total_sig += self.input_signature[i].powi(2); }
+        let sig_norm = total_sig.sqrt();
+        for i in 0..self.dim { self.input_signature[i] /= sig_norm; }
     }
 
     fn normalize(&mut self, target_norm: f32) {
