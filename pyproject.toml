@@ -4,6 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "dark-singularity"
+version = "0.1.0"
 description = "High-performance MWSO-based wave-state intelligence engine"
 requires-python = ">=3.8"
 classifiers = [
