@@ -14,6 +14,7 @@ pub struct Experience {
 pub struct Singularity {
     pub nodes: Vec<Node>,
     pub mwso: MWSO,
+    pub scout_mwso: MWSO, // 低次元スカウト (128次元固定)
     pub sharded_mwso: Option<ShardedMWSO>,
     pub bootstrapper: crate::core::knowledge::Bootstrapper,
     pub active_conditions: Vec<i32>, 
@@ -69,6 +70,7 @@ impl Singularity {
         Self {
             nodes,
             mwso: MWSO::new(required_dim),
+            scout_mwso: MWSO::new(128), // 常に高速な128次元で探索を回す
             sharded_mwso: if use_sharding {
                 Some(ShardedMWSO::new(total_action_size))
             } else {
@@ -166,54 +168,41 @@ impl Singularity {
         if self.input_history.len() > 4 { self.input_history.pop_front(); }
         // ------------------------------------------
 
-        // Background continuous noise is removed for signal clarity.
-        // Exploration is now purely through e-greedy and focused irradiation.
+        // --- Scout Scouting (Low-Resolution Broad Search) ---
+        // 常に高温で回して広域的な「アタリ」を探る
+        let scout_temp = (self.system_temperature + 0.5).clamp(0.8, 1.5);
+        self.scout_mwso.inject_state(state_idx % 128, 1.0, &vec![0.0; 128]);
+        self.scout_mwso.step_core(0.1, speed_boost, focus_factor, scout_temp, &vec![0.0; 128]);
         
-        // --- Focused Irradiation (Refined: Promising Focus) ---
-        if self.system_temperature > 0.3 {
-            if self.exploration_timer == 0 {
-                // Preview scores without noise to find where the wave is gravitating
-                let preview_scores = if let Some(ref mut sharded) = self.sharded_mwso {
-                    sharded.get_action_scores(&current_penalty_field)
-                } else {
-                    self.mwso.get_action_scores(0, self.action_size, 0.0, &current_penalty_field)
-                };
-                
-                // Find top candidates (best or second best)
-                let mut best_idx = 0;
-                let mut second_idx = 0;
-                let mut max_s = -f32::INFINITY;
-                let mut second_s = -f32::INFINITY;
-                
-                for (i, &s) in preview_scores.iter().enumerate() {
-                    if s > max_s {
-                        second_s = max_s; second_idx = best_idx;
-                        max_s = s; best_idx = i;
-                    } else if s > second_s {
-                        second_s = s; second_idx = i;
-                    }
-                }
-                
-                // 70% chance to focus on the leader, 30% on the runner-up to break local optima
-                self.current_focus_action = if self.mwso.next_rng() < 0.7 { best_idx } else { second_idx };
-                
-                // Timer scales with sqrt(dim) to allow interference formation in high dimensions
-                let dim_ratio = (self.mwso.dim as f32 / 1024.0).sqrt();
-                self.exploration_timer = (15.0 * dim_ratio) as usize; 
-            }
-            
-            // Linear scaling for strength: higher dims need linear boost to combat energy diffusion
-            let dim_boost = self.mwso.dim as f32 / 1024.0;
-            let strength = 0.1 * self.system_temperature * dim_boost; 
-            
-            if let Some(ref mut sharded) = self.sharded_mwso {
-                sharded.illuminate_bin(self.current_focus_action, strength);
-            } else {
-                self.mwso.illuminate_bin(self.current_focus_action, self.action_size, strength);
-            }
-            self.exploration_timer -= 1;
+        // スカウトから「粗い」最良アクションを取得
+        let scout_scores = self.scout_mwso.get_action_scores(0, self.action_size, 0.0, &vec![0.0; 128]);
+        let mut best_scout_action = 0;
+        let mut max_scout_s = -f32::INFINITY;
+        for (i, &s) in scout_scores.iter().enumerate() {
+            if s > max_scout_s { max_scout_s = s; best_scout_action = i; }
         }
-        
+
+        // --- Neighborhood Wave Effect Feedback (Scout -> Main) ---
+        // スカウトが選んだアクションとその近傍に、Main側でエネルギーを照射する
+        let irradiate_strength = 0.15 * self.system_temperature;
+        if irradiate_strength > 0.01 {
+            // 中心 (100%)
+            if let Some(ref mut sharded) = self.sharded_mwso {
+                sharded.illuminate_bin(best_scout_action, irradiate_strength);
+                // 左右近傍 (40% 強度で波及)
+                let left = (best_scout_action as i32 - 1).rem_euclid(self.action_size as i32) as usize;
+                let right = (best_scout_action as i32 + 1).rem_euclid(self.action_size as i32) as usize;
+                sharded.illuminate_bin(left, irradiate_strength * 0.4);
+                sharded.illuminate_bin(right, irradiate_strength * 0.4);
+            } else {
+                self.mwso.illuminate_bin(best_scout_action, self.action_size, irradiate_strength);
+                let left = (best_scout_action as i32 - 1).rem_euclid(self.action_size as i32) as usize;
+                let right = (best_scout_action as i32 + 1).rem_euclid(self.action_size as i32) as usize;
+                self.mwso.illuminate_bin(left, self.action_size, irradiate_strength * 0.4);
+                self.mwso.illuminate_bin(right, self.action_size, irradiate_strength * 0.4);
+            }
+        }
+
         if let Some(ref mut sharded) = self.sharded_mwso {
             sharded.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
         } else {
@@ -350,6 +339,9 @@ impl Singularity {
             } else {
                 self.mwso.adapt(exp.state_idx, discounted_reward, &exp.actions, self.system_temperature, self.action_size);
             }
+
+            // Scout MWSOにも報酬を反映 (低次元での大まかな傾向学習)
+            self.scout_mwso.adapt(exp.state_idx % 128, discounted_reward, &exp.actions, self.system_temperature, self.action_size);
 
             if self.active_conditions.is_empty() {
                 let state = exp.state_idx;
