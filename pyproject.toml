@@ -17,4 +17,4 @@ dependencies = []
 [tool.maturin]
 # Pythonモジュール名をRust側（src/lib.rs）の #[pymodule] 名と一致させます
 module-name = "dark_singularity"
-features = ["pyo3/extension-module"]
+features = ["python"]
