@@ -56,7 +56,7 @@
 ### 1. Integration
 
 #### Maven
-~~`pom.xml` にリポジトリと依存関係を追加してください。~~ 廃止されました。代替手段を用意する予定ではありますが未定です。
+`pom.xml` にリポジトリと依存関係を追加してください。
 
 ```xml
 <repositories>
@@ -86,11 +86,15 @@
 
 ```kotlin
 repositories {
-    maven("https://repo.ruskserver.com/repository/maven-public/")
+    maven {
+        name = "Cloudsmith-RuskServer-DarkSingularity"
+        url = uri("https://dl.cloudsmith.io/public/ruskserver/dark-singularity/maven/")
+    }
 }
 
 dependencies {
-    implementation("com.lunar_prototype:dark_singularity_api:1.3.0")
+    // 最新バージョン
+    implementation("com.lunar_prototype:dark_singularity_api:2.0.0-preview")
 }
 ```
 
