@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "dark-singularity"
+description = "High-performance MWSO-based wave-state intelligence engine"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[tool.maturin]
+# Pythonモジュール名をRust側（src/lib.rs）の #[pymodule] 名と一致させます
+module-name = "dark_singularity"
+features = ["pyo3/extension-module"]
