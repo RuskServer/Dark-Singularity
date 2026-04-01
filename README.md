@@ -61,8 +61,14 @@
 ```xml
 <repositories>
     <repository>
-        <id>ruskserver-releases</id>
-        <url>https://repo.ruskserver.com/repository/maven-public/</url>
+        <id>cloudsmith-ruskserver-dark-singularity</id>
+        <url>https://dl.cloudsmith.io/public/ruskserver/dark-singularity/maven/</url>
+        <releases>
+            <enabled>true</enabled>
+        </releases>
+        <snapshots>
+            <enabled>true</enabled>
+        </snapshots>
     </repository>
 </repositories>
 
@@ -70,7 +76,7 @@
     <dependency>
         <groupId>com.lunar_prototype</groupId>
         <artifactId>dark_singularity_api</artifactId>
-        <version>1.3.0</version> <!-- 最新バージョン -->
+        <version>2.0.0-preview</version> <!-- 最新バージョン -->
     </dependency>
 </dependencies>
 ```
