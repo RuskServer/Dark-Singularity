@@ -51,7 +51,7 @@ fn benchmark_chaos_dynamic_adaptation() {
         // 学習履歴（Time-series learning）がここで活きる
         let reward = if is_correct { 3.0 } else { -1.5 };
         let expert_strength = if is_correct { 0.3 } else { 0.6 };
-        ai.observe_expert(state_idx, &[target_action], expert_strength);
+        //ai.observe_expert(state_idx, &[target_action], expert_strength);
         ai.learn(reward);
 
         // 5. 進捗表示
