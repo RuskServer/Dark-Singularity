@@ -11,6 +11,12 @@ pub struct Experience {
     pub actions: Vec<usize>,
 }
 
+#[derive(Clone, Debug)]
+pub struct VectorExperience {
+    pub state_weights: Vec<(usize, f32)>,
+    pub actions: Vec<usize>,
+}
+
 pub struct Singularity {
     pub nodes: Vec<Node>,
     pub mwso: MWSO,
@@ -36,6 +42,7 @@ pub struct Singularity {
     pub action_momentum: Vec<f32>, 
     pub input_history: VecDeque<usize>, // 入力状態の履歴（流れ）
     pub history: VecDeque<Experience>,
+    pub vector_history: VecDeque<VectorExperience>,
     pub max_history: usize,
     pub learned_rules: Vec<(usize, usize, usize)>, 
     pub penalty_matrix: Vec<f32>, 
@@ -96,6 +103,7 @@ impl Singularity {
             action_momentum: vec![0.0; total_action_size],
             input_history: VecDeque::with_capacity(8),
             history: VecDeque::with_capacity(32),
+            vector_history: VecDeque::with_capacity(32),
             max_history: 15,
             learned_rules: Vec::new(),
             penalty_matrix: vec![0.0; state_size * penalty_dim],
@@ -112,6 +120,99 @@ impl Singularity {
 
     pub fn set_active_conditions(&mut self, conditions: &[i32]) {
         self.active_conditions = conditions.to_vec();
+    }
+
+    pub fn select_actions_vector(&mut self, state_weights: &[(usize, f32)]) -> Vec<i32> {
+        let speed_boost = (self.adrenaline * 0.5).clamp(0.0, 1.0);
+        let focus_factor = (self.nodes[self.idx_tactical].state * 0.5).clamp(0.0, 1.0);
+
+        let total_dim = self.penalty_dim;
+        let mut current_penalty_field = vec![0.0; total_dim];
+        
+        // Accumulate penalties from all weighted states
+        for &(idx, w) in state_weights {
+            if w < 0.001 { continue; }
+            let start = (idx % self.state_size) * total_dim;
+            if start + total_dim <= self.penalty_matrix.len() {
+                let state_penalty = &self.penalty_matrix[start..start + total_dim];
+                for i in 0..total_dim {
+                    current_penalty_field[i] += state_penalty[i] * w;
+                }
+            }
+        }
+
+        // --- Knowledge-based Penalty Injection ---
+        let bin_per_action = self.mwso.dim / self.action_size;
+        let active_resonance = self.bootstrapper.calculate_resonance_field(&self.active_conditions, self.action_size);
+        for (action_idx, strength_opt) in active_resonance.iter().enumerate() {
+            if let Some(strength) = strength_opt {
+                if *strength < 0.0 {
+                    let p_val = strength.abs() * 50.0;
+                    let b_start = action_idx * bin_per_action;
+                    for j in 0..bin_per_action {
+                        if b_start + j < current_penalty_field.len() {
+                            current_penalty_field[b_start + j] += p_val;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Vector State Injection ---
+        if let Some(ref mut sharded) = self.sharded_mwso {
+            sharded.inject_vector_state(state_weights, 1.0, self.system_temperature, &current_penalty_field);
+        } else {
+            self.mwso.set_vector_input_query(state_weights, 1.0);
+            self.mwso.inject_vector_state(state_weights, 1.0, &current_penalty_field);
+        }
+
+        // --- Scout Scouting ---
+        let scout_temp = (self.system_temperature + 0.5).clamp(0.8, 1.5);
+        for &(idx, w) in state_weights {
+            if w > 0.1 {
+                self.scout_mwso.inject_state(idx % 128, w, &vec![0.0; 128]);
+            }
+        }
+        self.scout_mwso.step_core(0.1, speed_boost, focus_factor, scout_temp, &vec![0.0; 128]);
+        let scout_scores = self.scout_mwso.get_action_scores(0, self.action_size, 0.0, &vec![0.0; 128]);
+        let mut best_scout_action = 0;
+        let mut max_scout_s = -f32::INFINITY;
+        for (i, &s) in scout_scores.iter().enumerate() {
+            if s > max_scout_s { max_scout_s = s; best_scout_action = i; }
+        }
+
+        let irradiate_strength = 0.15 * self.system_temperature;
+        if irradiate_strength > 0.01 {
+            if let Some(ref mut sharded) = self.sharded_mwso {
+                sharded.illuminate_bin(best_scout_action, irradiate_strength);
+            } else {
+                self.mwso.illuminate_bin(best_scout_action, self.action_size, irradiate_strength);
+            }
+        }
+
+        if let Some(ref mut sharded) = self.sharded_mwso {
+            sharded.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
+        } else {
+            self.mwso.step_core(0.1, speed_boost, focus_factor, self.system_temperature, &current_penalty_field);
+        }
+
+        let mut results = Vec::with_capacity(self.category_sizes.len());
+        let mut current_offset = 0;
+        let cat_sizes = self.category_sizes.clone();
+        for (cat_idx, &size) in cat_sizes.iter().enumerate() {
+            let best_idx = self.get_best_in_range(current_offset, size, &current_penalty_field);
+            self.last_actions[cat_idx] = current_offset + best_idx;
+            results.push(best_idx as i32);
+            current_offset += size;
+        }
+
+        self.vector_history.push_back(VectorExperience {
+            state_weights: state_weights.to_vec(),
+            actions: self.last_actions.clone(),
+        });
+        if self.vector_history.len() > self.max_history { self.vector_history.pop_front(); }
+
+        results
     }
 
     pub fn select_actions(&mut self, state_idx: usize) -> Vec<i32> {
@@ -146,6 +247,7 @@ impl Singularity {
         if let Some(ref mut sharded) = self.sharded_mwso {
             sharded.inject_state(state_idx, 1.0, self.system_temperature, &current_penalty_field);
         } else {
+            self.mwso.set_input_query(state_idx, 1.0);
             self.mwso.inject_state(state_idx, 1.0, &current_penalty_field);
         }
         
@@ -157,6 +259,7 @@ impl Singularity {
                 // 全シャードに注入するが強度を弱める
                 sharded.inject_state(prev_idx, decay * 0.5, self.system_temperature, &current_penalty_field);
             } else {
+                self.mwso.set_input_query(prev_idx, decay);
                 self.mwso.inject_state(prev_idx, decay, &current_penalty_field);
             }
             decay *= 0.6;
@@ -314,7 +417,65 @@ impl Singularity {
         top_k[0].0
     }
 
+    pub fn learn_vector(&mut self, reward: f32) {
+        let mut discount = 1.0;
+        let gamma = 0.9;
+
+        let history_clone = self.vector_history.clone();
+        for exp in history_clone.iter().rev() {
+            let discounted_reward = reward * discount;
+            if let Some(ref mut sharded) = self.sharded_mwso {
+                sharded.adapt_vector(&exp.state_weights, discounted_reward, &exp.actions, self.system_temperature);
+            } else {
+                self.mwso.imprint_vector_qcel(&exp.state_weights, discounted_reward);
+                for &(state_idx, w) in &exp.state_weights {
+                    if w > 0.01 {
+                        self.mwso.adapt(state_idx, discounted_reward * w, &exp.actions, self.system_temperature, self.action_size);
+                    }
+                }
+            }
+
+            // Scout MWSO (use strongest feature for simplicity)
+            if let Some(strongest) = exp.state_weights.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap()) {
+                self.scout_mwso.adapt(strongest.0 % 128, discounted_reward, &exp.actions, self.system_temperature, self.action_size);
+            }
+
+            // Update Penalty Matrix for each weighted state
+            let penalty_dim = self.penalty_dim;
+            let bin_per_action = penalty_dim / self.action_size;
+            let dim_stability = (1024.0 / self.mwso.dim as f32).sqrt().min(1.0);
+
+            for &(state_idx, w) in &exp.state_weights {
+                if w < 0.05 { continue; }
+                for &action_idx in &exp.actions {
+                    let start = (state_idx % self.state_size) * penalty_dim + action_idx * bin_per_action;
+                    if start + bin_per_action <= self.penalty_matrix.len() {
+                        if discounted_reward > 1.2 {
+                            for j in 0..bin_per_action { 
+                                self.penalty_matrix[start + j] *= 1.0 - (0.5 * w * (0.5 + 0.4 * (1.0 - dim_stability))); 
+                            }
+                        } else if discounted_reward < 0.0 {
+                            let p_add = (discounted_reward.abs() * 2.0 * dim_stability * w).min(10.0);
+                            for j in 0..bin_per_action { 
+                                self.penalty_matrix[start + j] = (self.penalty_matrix[start + j] + p_add).min(10.0); 
+                            }
+                        }
+                    }
+                }
+            }
+
+            discount *= gamma;
+            if discount < 0.01 { break; }
+        }
+    }
+
     pub fn learn(&mut self, reward: f32) {
+        // Handle vector-based history first
+        if !self.vector_history.is_empty() {
+            self.learn_vector(reward);
+            self.vector_history.clear();
+        }
+
         let mut discount = 1.0;
         let gamma = 0.9;
 

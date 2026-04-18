@@ -18,7 +18,8 @@ pub struct MWSO {
     pub q_topo_re: Vec<f64>,   // Topological correlation (Gradients)
     pub q_topo_im: Vec<f64>,
     pub energy_landscape: Vec<f32>, // Dynamic potential field (V)
-    pub input_signature: Vec<f32>,  // Quantized current input (Query)
+    pub input_signature_re: Vec<f32>, // Quantized current input (Query Real)
+    pub input_signature_im: Vec<f32>, // Quantized current input (Query Imag)
     
     pub scramble_phases: Vec<f32>,
     
@@ -67,7 +68,8 @@ impl MWSO {
             q_topo_re: vec![0.0; dim],
             q_topo_im: vec![0.0; dim],
             energy_landscape: vec![0.0; dim],
-            input_signature: vec![0.0; dim],
+            input_signature_re: vec![0.0; dim],
+            input_signature_im: vec![0.0; dim],
             scramble_phases,
             dim,
             rng_seed: 0xDEADBEEF,
@@ -88,16 +90,18 @@ impl MWSO {
     /// PP-CEL: Pure-Phase Correlated Energy Landscape Imprinting.
     /// Uses pure phase correlations weighted by reward (alpha) with normalization.
     pub fn imprint_qcel(&mut self, input_idx: usize, reward: f32) {
-        // Alpha: Weight of the memory update. 
-        // Improvement: Allow negative alpha for active suppression of bad memories.
         let alpha = reward as f64;
-        let offset = (input_idx as f32 * 1.618).rem_euclid(2.0 * PI);
+        let base_lambda = 0.008; // Slightly higher base forgetting
         
-        // Dynamic Plasticity (Improvement): 
-        // Moderate lambda (forgetting rate) even if reward is negative.
-        let base_lambda = 0.006; // Faster base forgetting for high-dim (Improvement 2)
-        let lambda = if reward < 0.0 { base_lambda * 4.0 } else { base_lambda };
+        // 失敗時は報酬の大きさに応じて忘却を加速（最大 0.2 まで）
+        let lambda = if reward < 0.0 { 
+            (base_lambda * 6.0 * reward.abs() as f64).min(0.2) 
+        } else { 
+            base_lambda 
+        };
         let dim_norm = (self.dim as f64).sqrt();
+        let offset = (input_idx as f32 * 1.618).rem_euclid(2.0 * PI);
+        let spread = 2;
 
         for i in 0..self.dim {
             let next_i = (i + 1) % self.dim;
@@ -109,13 +113,24 @@ impl MWSO {
             let u_psi_re = psi_re / psi_mag;
             let u_psi_im = psi_im / psi_mag;
 
-            let sig_phase = self.scramble_phases[i] + offset;
-            let (sig_sin, sig_cos) = sig_phase.sin_cos();
-            let sig_re = sig_cos as f64;
-            let sig_im = sig_sin as f64;
+            // Use same spread as in set_input_query
+            let mut sig_re = 0.0f64;
+            let mut sig_im = 0.0f64;
+            for j in 0..spread {
+                let idx_offset = (offset + j as f32 * 0.05).rem_euclid(2.0 * PI);
+                let weight = 1.0 / (j + 1) as f32;
+                let sig_phase = self.scramble_phases[i] + idx_offset;
+                let (s, c) = sig_phase.sin_cos();
+                sig_re += c as f64 * weight as f64;
+                sig_im += s as f64 * weight as f64;
+            }
+            // Normalize the imprinted signature
+            let sig_mag_total = (sig_re.powi(2) + sig_im.powi(2)).sqrt() + 1e-9;
+            let u_sig_re = sig_re / sig_mag_total;
+            let u_sig_im = sig_im / sig_mag_total;
 
-            let corr_re = u_psi_re * sig_re + u_psi_im * sig_im;
-            let corr_im = u_psi_im * sig_re - u_psi_re * sig_im;
+            let corr_re = u_psi_re * u_sig_re + u_psi_im * u_sig_im;
+            let corr_im = u_psi_im * u_sig_re - u_psi_re * u_sig_im;
             
             self.q_memory_re[i] = self.q_memory_re[i] * (1.0 - lambda) + corr_re * alpha / dim_norm;
             self.q_memory_im[i] = self.q_memory_im[i] * (1.0 - lambda) + corr_im * alpha / dim_norm;
@@ -130,13 +145,24 @@ impl MWSO {
             let d_psi_re = u_psi_re * u_psi_re_next + u_psi_im * u_psi_im_next;
             let d_psi_im = u_psi_im * u_psi_re_next - u_psi_re * u_psi_im_next;
 
-            let sig_phase_next = self.scramble_phases[next_i] + offset;
-            let (sig_sin_next, sig_cos_next) = sig_phase_next.sin_cos();
-            let d_sig_re = (sig_cos * sig_cos_next as f32 + sig_sin * sig_sin_next as f32) as f64;
-            let d_sig_im = (sig_sin * sig_cos_next as f32 - sig_cos * sig_sin_next as f32) as f64;
+            // Gradient for the spread signature
+            let mut d_sig_re = 0.0f64;
+            let mut d_sig_im = 0.0f64;
+            for j in 0..spread {
+                let idx_offset = (offset + j as f32 * 0.05).rem_euclid(2.0 * PI);
+                let sig_phase = self.scramble_phases[i] + idx_offset;
+                let sig_phase_next = self.scramble_phases[next_i] + idx_offset;
+                let (s1, c1) = sig_phase.sin_cos();
+                let (s2, c2) = sig_phase_next.sin_cos();
+                d_sig_re += (c1 * c2 + s1 * s2) as f64;
+                d_sig_im += (s1 * c2 - c1 * s2) as f64;
+            }
+            let d_sig_mag = (d_sig_re.powi(2) + d_sig_im.powi(2)).sqrt() + 1e-9;
+            let u_d_sig_re = d_sig_re / d_sig_mag;
+            let u_d_sig_im = d_sig_im / d_sig_mag;
 
-            let topo_re = d_psi_re * d_sig_re + d_psi_im * d_sig_im;
-            let topo_im = d_psi_im * d_sig_re - d_psi_re * d_sig_im;
+            let topo_re = d_psi_re * u_d_sig_re + d_psi_im * u_d_sig_im;
+            let topo_im = d_psi_im * u_d_sig_re - d_psi_re * u_d_sig_im;
 
             self.q_topo_re[i] = self.q_topo_re[i] * (1.0 - lambda) + topo_re * alpha / dim_norm;
             self.q_topo_im[i] = self.q_topo_im[i] * (1.0 - lambda) + topo_im * alpha / dim_norm;
@@ -192,6 +218,69 @@ impl MWSO {
         }
     }
 
+    /// Injects a vector-based state (weighted multiple indices).
+    /// This allows for simultaneous multi-feature injection.
+    pub fn inject_vector_state(&mut self, state_weights: &[(usize, f32)], total_strength: f32, penalty_field: &[f32]) {
+        for &(idx, w) in state_weights {
+            if w > 0.001 {
+                self.inject_state(idx, total_strength * w, penalty_field);
+            }
+        }
+    }
+
+    /// PP-CEL: Vector Imprinting.
+    /// Imprints multiple states weighted by reward and their respective weights.
+    pub fn imprint_vector_qcel(&mut self, state_weights: &[(usize, f32)], reward: f32) {
+        for &(idx, w) in state_weights {
+            if w > 0.001 {
+                self.imprint_qcel(idx, reward * w);
+            }
+        }
+    }
+
+    /// Sets the current input query using multiple weighted indices.
+    pub fn set_vector_input_query(&mut self, state_weights: &[(usize, f32)], total_strength: f32) {
+        // Reset current signature energy moderately
+        for i in 0..self.dim {
+            self.input_signature_re[i] *= 0.5;
+            self.input_signature_im[i] *= 0.5;
+        }
+
+        for &(idx, w) in state_weights {
+            if w > 0.001 {
+                // We add to the signature for each active feature
+                self.add_to_signature(idx, total_strength * w);
+            }
+        }
+        self.normalize_signature();
+    }
+
+    fn add_to_signature(&mut self, input_idx: usize, strength: f32) {
+        let offset = (input_idx as f32 * 1.618).rem_euclid(2.0 * PI);
+        let spread = 2; 
+
+        for j in 0..spread {
+            let idx_offset = (offset + j as f32 * 0.05).rem_euclid(2.0 * PI);
+            let weight = 1.0 / (j + 1) as f32;
+            for i in 0..self.dim {
+                let sig_phase = self.scramble_phases[i] + idx_offset;
+                let (s, c) = sig_phase.sin_cos();
+                self.input_signature_re[i] += c * strength * weight;
+                self.input_signature_im[i] += s * strength * weight;
+            }
+        }
+    }
+
+    fn normalize_signature(&mut self) {
+        let mut total_sig = 1e-9;
+        for i in 0..self.dim { total_sig += self.input_signature_re[i].powi(2) + self.input_signature_im[i].powi(2); }
+        let sig_norm = total_sig.sqrt();
+        for i in 0..self.dim { 
+            self.input_signature_re[i] /= sig_norm; 
+            self.input_signature_im[i] /= sig_norm; 
+        }
+    }
+
     pub fn step_core(&mut self, dt: f32, speed_boost: f32, focus_factor: f32, system_temp: f32, penalty_field: &[f32]) {
         let solidification = 0.9999 - (0.0005 * (1.0 - focus_factor));
         let effective_dt = dt * (1.0 + speed_boost);
@@ -202,39 +291,65 @@ impl MWSO {
         let mut recall_im = vec![0.0; self.dim];
         
         // Soft Gate exponent based on temperature (High temp = more inclusive)
-        // Softened for high-dim to avoid binary 0/1 gate (Improvement 3)
-        let gate_power = (2.2 - system_temp * 1.0).clamp(1.2, 3.5);
+        let gate_power = (1.8 - system_temp * 0.8).clamp(1.0, 3.0);
+
+        // Self-Association Weight: How much the current wave (psi) pulls the recall
+        // 温度が高い時は弱めるだけでなく、入力が不確かな場所ほど強く働くように動的制御
+        let base_assoc_strength = 0.4 * focus_factor * (1.0 - (system_temp * 0.5).min(0.8));
 
         for i in 0..self.dim {
             let next_i = (i + 1) % self.dim;
-            let sig_re = self.input_signature[i] as f64;
-            let sig_im = (self.scramble_phases[i] + self.rng_seed as f32).sin() as f64 * 0.2;
 
-            let sig_mag = (sig_re.powi(2) + sig_im.powi(2)).sqrt() + 1e-9;
-            let u_sig_re = sig_re / sig_mag;
-            let u_sig_im = sig_im / sig_mag;
+            // --- Hybrid Query (External Input + Internal Wave State) ---
+            let psi_re = self.psi_real[i] as f64;
+            let psi_im = self.psi_imag[i] as f64;
+            let psi_mag_sq = psi_re.powi(2) + psi_im.powi(2) + 1e-12;
+            let psi_mag = psi_mag_sq.sqrt();
+            
+            // 入力信号が弱い場所ほど、自己連想（穴埋め）を強める
+            let sig_strength = (self.input_signature_re[i].powi(2) + self.input_signature_im[i].powi(2)).sqrt();
+            let local_assoc = base_assoc_strength * (1.2 - sig_strength).clamp(0.2, 1.2);
+
+            let query_re = self.input_signature_re[i] as f64 + (psi_re / psi_mag) * local_assoc as f64;
+            let query_im = self.input_signature_im[i] as f64 + (psi_im / psi_mag) * local_assoc as f64;
+
+            let q_mag = (query_re.powi(2) + query_im.powi(2)).sqrt() + 1e-9;
+            let u_q_re = query_re / q_mag;
+            let u_q_im = query_im / q_mag;
 
             // 1. Pointwise Recall
-            let rec_re = self.q_memory_re[i] * u_sig_re - self.q_memory_im[i] * u_sig_im;
-            let rec_im = self.q_memory_re[i] * u_sig_im + self.q_memory_im[i] * u_sig_re;
+            let rec_re = self.q_memory_re[i] * u_q_re - self.q_memory_im[i] * u_q_im;
+            let rec_im = self.q_memory_re[i] * u_q_im + self.q_memory_im[i] * u_q_re;
 
             // 2. Topological Shape Matching
-            let sig_re_next = self.input_signature[next_i] as f64;
-            let sig_im_next = (self.scramble_phases[next_i] + self.rng_seed as f32).sin() as f64 * 0.2;
-            let sig_mag_next = (sig_re_next.powi(2) + sig_im_next.powi(2)).sqrt() + 1e-9;
+            let query_re_next = self.input_signature_re[next_i] as f64 + (self.psi_real[next_i] as f64 / dim_scale as f64) * local_assoc as f64;
+            let query_im_next = self.input_signature_im[next_i] as f64 + (self.psi_imag[next_i] as f64 / dim_scale as f64) * local_assoc as f64;
+            let q_mag_next = (query_re_next.powi(2) + query_im_next.powi(2)).sqrt() + 1e-9;
             
-            let d_sig_re = (u_sig_re * (sig_re_next / sig_mag_next) + u_sig_im * (sig_im_next / sig_mag_next));
-            let d_sig_im = (u_sig_im * (sig_re_next / sig_mag_next) - u_sig_re * (sig_im_next / sig_mag_next));
+            let d_q_re = u_q_re * (query_re_next / q_mag_next) + u_q_im * (query_im_next / q_mag_next);
+            let d_q_im = u_q_im * (query_re_next / q_mag_next) - u_q_re * (query_im_next / q_mag_next);
 
-            let topo_match = (self.q_topo_re[i] * d_sig_re + self.q_topo_im[i] * d_sig_im).max(0.0);
+            let topo_match = (self.q_topo_re[i] * d_q_re + self.q_topo_im[i] * d_q_im).max(0.0);
             let shape_coherence = (topo_match as f32 * 2.5).clamp(0.5, 2.5);
 
-            // Soft-Gate: Similarity to the power of gate_power
+            // Soft-Gate
             let corr_strength = (rec_re.powi(2) + rec_im.powi(2)).sqrt();
-            let gate = (corr_strength * shape_coherence as f64).powf(gate_power as f64).clamp(0.0, 2.0);
+            let mut gate = (corr_strength * shape_coherence as f64).powf(gate_power as f64).clamp(0.0, 2.0);
 
-            recall_re[i] = (rec_re * gate) as f32;
-            recall_im[i] = (rec_im * gate) as f32;
+            // --- Phase Coherence Guard & Resonance ---
+            let alignment = (psi_re * rec_re + psi_im * rec_im) / (psi_mag * corr_strength + 1e-12);
+            
+            let mut resonance_gain = 1.0;
+            if alignment < -0.3 {
+                // 逆位相なら大幅に減衰（干渉防止）
+                gate *= (1.0 + alignment).max(0.0); 
+            } else if alignment > 0.6 {
+                // 強烈な共鳴：位相が一致しているなら、想起強度を非線形に増幅 (Similarity Resonance)
+                resonance_gain = 1.0 + (alignment as f32 - 0.6).powi(2) * 5.0;
+            }
+
+            recall_re[i] = (rec_re * gate * resonance_gain as f64) as f32;
+            recall_im[i] = (rec_im * gate * resonance_gain as f64) as f32;
         }
 
         // --- 2. Dynamic Energy Landscape (V) ---
@@ -245,8 +360,16 @@ impl MWSO {
             let recall_intensity = (recall_re[i].powi(2) + recall_im[i].powi(2)).sqrt();
             let penalty = penalty_field.get(i).cloned().unwrap_or(0.0);
             
-            // Stronger dip for higher contrast
-            let target_v = -recall_intensity * 3.5 * focus_factor + penalty * 6.0 + (self.next_rng() - 0.5) * thermal_noise;
+            // --- Input-Memory Cross Resonance ---
+            // 入力信号と記憶が一致している場所は、ポテンシャルの谷をさらに深くして「確信」を定着させる
+            let sig_re = self.input_signature_re[i] as f64;
+            let sig_im = self.input_signature_im[i] as f64;
+            let mem_re = self.q_memory_re[i];
+            let mem_im = self.q_memory_im[i];
+            let input_mem_match = (sig_re * mem_re + sig_im * mem_im).max(0.0);
+            let cross_resonance = (input_mem_match as f32 * 3.0).min(5.0);
+
+            let target_v = -recall_intensity * (5.0 + cross_resonance) * focus_factor + penalty * 6.0 + (self.next_rng() - 0.5) * thermal_noise;
             self.energy_landscape[i] = self.energy_landscape[i] * smoothing + target_v * (1.0 - smoothing);
         }
 
@@ -263,8 +386,8 @@ impl MWSO {
             let mut new_re = re * cos_w - im * sin_w;
             let mut new_im = re * sin_w + im * cos_w;
 
-            // Higher injection boost for rapid convergence
-            let recall_boost = (1.5 + focus_factor) * (1.0 / (system_temp + 0.1));
+            // 波の直接加算（boost）は控えめにし、ポテンシャルによる誘導をメインにする (2.5 -> 0.8)
+            let recall_boost = (0.8 + focus_factor * 0.5) * (1.0 / (system_temp + 0.1));
             new_re += recall_re[i] * recall_boost * effective_dt;
             new_im += recall_im[i] * recall_boost * effective_dt;
 
@@ -316,7 +439,8 @@ impl MWSO {
         let spread = 2; 
 
         for i in 0..self.dim {
-            self.input_signature[i] *= 0.8; // Stronger momentum (Improvement 4)
+            self.input_signature_re[i] *= 0.8; 
+            self.input_signature_im[i] *= 0.8;
         }
 
         for j in 0..spread {
@@ -324,15 +448,20 @@ impl MWSO {
             let weight = 1.0 / (j + 1) as f32;
             for i in 0..self.dim {
                 let sig_phase = self.scramble_phases[i] + idx_offset;
-                self.input_signature[i] += sig_phase.cos() * strength * weight;
+                let (s, c) = sig_phase.sin_cos();
+                self.input_signature_re[i] += c * strength * weight;
+                self.input_signature_im[i] += s * strength * weight;
             }
         }
 
-        // Improvement 3: Normalize signature energy
+        // Normalize signature energy
         let mut total_sig = 1e-9;
-        for i in 0..self.dim { total_sig += self.input_signature[i].powi(2); }
+        for i in 0..self.dim { total_sig += self.input_signature_re[i].powi(2) + self.input_signature_im[i].powi(2); }
         let sig_norm = total_sig.sqrt();
-        for i in 0..self.dim { self.input_signature[i] /= sig_norm; }
+        for i in 0..self.dim { 
+            self.input_signature_re[i] /= sig_norm; 
+            self.input_signature_im[i] /= sig_norm; 
+        }
     }
 
     fn normalize(&mut self, target_norm: f32) {
@@ -686,6 +815,56 @@ impl ShardedMWSO {
             shard.inject_state(state_idx % shard.dim, strength * shard_weight, &local_penalty);
         }
     }
+
+    /// Injects a vector-based state (weighted multiple features) into the sharded system.
+    pub fn inject_vector_state(&mut self, state_weights: &[(usize, f32)], total_strength: f32, system_temp: f32, penalty_field: &[f32]) {
+        if self.shards.is_empty() { return; }
+        
+        // We accumulate the effective query for each shard
+        let mut shard_query_strengths = vec![0.0; self.shards.len()];
+        let mut shard_injection_weights = vec![Vec::new(); self.shards.len()];
+
+        for &(state_idx, w) in state_weights {
+            if w < 0.001 { continue; }
+            
+            let affinities = self.state_affinities.entry(state_idx).or_insert_with(|| {
+                vec![1.0 / self.shards.len() as f32; self.shards.len()]
+            });
+
+            let exploration_factor = (system_temp * 0.5).clamp(0.0, 1.0);
+            let base_prob = exploration_factor * (1.0 / self.shards.len() as f32);
+
+            for shard_idx in 0..self.shards.len() {
+                let shard_w = (affinities[shard_idx] * (1.0 - exploration_factor)) + base_prob;
+                shard_query_strengths[shard_idx] += shard_w * w;
+                shard_injection_weights[shard_idx].push((state_idx % self.shard_dim, w * shard_w));
+            }
+        }
+
+        let bin_per_action = self.shard_dim / self.actions_per_shard;
+        for shard_idx in 0..self.shards.len() {
+            let q_strength = shard_query_strengths[shard_idx];
+            if q_strength < 0.001 { continue; }
+
+            let action_start = shard_idx * self.actions_per_shard;
+            let action_end = (action_start + self.actions_per_shard).min(self.total_action_size);
+            let slice_start = action_start * bin_per_action;
+            let slice_end = action_end * bin_per_action;
+
+            let mut local_penalty = vec![0.0f32; self.shard_dim];
+            if slice_end > slice_start && slice_end <= penalty_field.len() {
+                let relevant_slice = &penalty_field[slice_start..slice_end];
+                let local_penalty_len = relevant_slice.len();
+                local_penalty[..local_penalty_len].copy_from_slice(relevant_slice);
+            }
+
+            let shard = &mut self.shards[shard_idx];
+            // Q-CEL: Set a complex vector-based input query
+            shard.set_vector_input_query(&state_weights, total_strength * q_strength);
+            // Internal state injection for the features active in this shard
+            shard.inject_vector_state(&shard_injection_weights[shard_idx], total_strength, &local_penalty);
+        }
+    }
  
     pub fn step_core(&mut self, dt: f32, speed_boost: f32, focus_factor: f32, system_temp: f32, penalty_field: &[f32]) {
         let bin_per_action = self.shard_dim / self.actions_per_shard;
@@ -762,7 +941,41 @@ impl ShardedMWSO {
             }
         }
     }
- 
+
+    /// Adapts the sharded system using a vector of states.
+    pub fn adapt_vector(&mut self, state_weights: &[(usize, f32)], reward: f32, last_actions: &[usize], system_temp: f32) {
+        for &action_idx in last_actions {
+            let (shard_idx, local_action) = self.shard_for_action(action_idx);
+            
+            // 1. Imprint the collective vector state into the relevant shard
+            self.shards[shard_idx].imprint_vector_qcel(state_weights, reward);
+            
+            // 2. Perform standard adaptation (Phase alignment) for each contributing state
+            for &(state_idx, w) in state_weights {
+                if w < 0.01 { continue; }
+                
+                self.shards[shard_idx].adapt(
+                    state_idx,
+                    reward * w, // Weighted reward for this feature
+                    &[local_action],
+                    system_temp,
+                    self.actions_per_shard,
+                );
+
+                // 3. Affinity Reinforcement
+                if reward > 0.1 {
+                    let affinities = self.state_affinities.entry(state_idx).or_insert_with(|| {
+                        vec![1.0 / self.shards.len() as f32; self.shards.len()]
+                    });
+                    affinities[shard_idx] = (affinities[shard_idx] + reward * w * 0.1).min(2.0);
+                    for i in 0..affinities.len() {
+                        if i != shard_idx { affinities[i] *= 0.98; }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn calculate_ipr(&self) -> f32 {
         // 全シャードのIPR平均
         self.shards.iter().map(|s| s.calculate_ipr()).sum::<f32>() / self.shards.len() as f32

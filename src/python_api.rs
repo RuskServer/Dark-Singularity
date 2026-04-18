@@ -20,8 +20,16 @@ impl PySingularity {
         self.inner.select_actions(state_idx)
     }
 
+    pub fn select_actions_vector(&mut self, state_weights: Vec<(usize, f32)>) -> Vec<i32> {
+        self.inner.select_actions_vector(&state_weights)
+    }
+
     pub fn learn(&mut self, reward: f32) {
         self.inner.learn(reward);
+    }
+
+    pub fn learn_vector(&mut self, reward: f32) {
+        self.inner.learn_vector(reward);
     }
 
     pub fn set_active_conditions(&mut self, conditions: Vec<i32>) {

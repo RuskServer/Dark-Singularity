@@ -68,6 +68,34 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     output.into_raw()
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_selectActionsVectorNative(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    indices: JIntArray,
+    weights: JFloatArray,
+) -> jintArray {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    
+    let len = env.get_array_length(&indices).unwrap_or(0) as usize;
+    let mut idx_buf = vec![0i32; len];
+    let mut weight_buf = vec![0.0f32; len];
+    
+    env.get_int_array_region(&indices, 0, &mut idx_buf).unwrap_or(());
+    env.get_float_array_region(&weights, 0, &mut weight_buf).unwrap_or(());
+
+    let state_weights: Vec<(usize, f32)> = idx_buf.into_iter().enumerate()
+        .map(|(i, idx)| (idx as usize, weight_buf[i]))
+        .collect();
+
+    let actions = singularity.select_actions_vector(&state_weights);
+
+    let output = env.new_int_array(actions.len() as jsize).unwrap();
+    env.set_int_array_region(&output, 0, &actions).unwrap();
+    output.into_raw()
+}
+
 // 学習（経験の消化）を Rust 側で実行
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_learnNative(
@@ -79,6 +107,17 @@ pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singular
     let singularity = unsafe { &mut *(handle as *mut Singularity) };
     // 最後に選択されたアクション群に対して報酬を適用
     singularity.learn(reward as f32);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_lunar_1prototype_dark_1singularity_1api_Singularity_learnVectorNative(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    reward: jfloat,
+) {
+    let singularity = unsafe { &mut *(handle as *mut Singularity) };
+    singularity.learn_vector(reward as f32);
 }
 
 #[unsafe(no_mangle)]
